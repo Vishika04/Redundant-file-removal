@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Redundant File Remover
+GenericName=Duplicate File Cleaner
+Comment=Find and remove duplicate files safely — Storage Tree View included
+Exec=python3 /opt/RedundantFileRemover/redundant_file_remover.py
+Icon=utilities-file-archiver
+Terminal=false
+StartupNotify=true
+Categories=Utility;FileManager;System;
+Keywords=duplicate;files;cleaner;remover;storage;
