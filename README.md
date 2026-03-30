@@ -204,4 +204,4 @@ MIT — free to use, modify, and distribute.
 
 ---
 
-*Built with ❤️ using Python + PyQt6*
+*A5A9
