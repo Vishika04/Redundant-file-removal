@@ -24,13 +24,16 @@ from features.core.utils     import (
     is_protected_path, is_protected_file,
     fmt_size, open_in_explorer, optimal_workers,
 )
-from features.scanner.worker import ScanWorker
-from features.scanner.tab    import ScanTab
-from features.storage.worker import StorageWorker
-from features.storage.tab    import StorageTab
-from features.ui.header      import AppHeader
-from features.ui.sidebar     import Sidebar
-from features.ui.style       import STYLE
+from features.scanner.worker  import ScanWorker
+from features.scanner.tab     import ScanTab
+from features.storage.worker  import StorageWorker
+from features.storage.tab     import StorageTab
+from features.storage.chart   import StorageChart
+from features.ui.header       import AppHeader
+from features.ui.sidebar      import Sidebar
+from features.ui.style        import STYLE
+
+_STORAGE_DEPTH = 4   # fixed tree depth, no user control needed
 
 
 class MainWindow(QMainWindow):
@@ -46,10 +49,11 @@ class MainWindow(QMainWindow):
         self._load_icon()
 
         # ── State ─────────────────────────────────────────────────────────────
-        self._scan_worker:    Optional[ScanWorker]    = None
-        self._storage_worker: Optional[StorageWorker] = None
-        self._groups:         list[DuplicateGroup]    = []
-        self._selected_root   = ""
+        self._scan_worker:       Optional[ScanWorker]    = None
+        self._storage_worker:    Optional[StorageWorker] = None
+        self._groups:            list[DuplicateGroup]    = []
+        self._selected_root      = ""
+        self._storage_loaded_for = ""   # track which root is currently shown
 
         # ── Build & style ──────────────────────────────────────────────────────
         self._build_ui()
@@ -72,11 +76,9 @@ class MainWindow(QMainWindow):
         root_lay.setContentsMargins(0, 0, 0, 0)
         root_lay.setSpacing(0)
 
-        # Header
         self._header = AppHeader()
         root_lay.addWidget(self._header)
 
-        # Body (sidebar + tabs)
         body = QWidget()
         body_lay = QHBoxLayout(body)
         body_lay.setContentsMargins(0, 0, 0, 0)
@@ -91,12 +93,11 @@ class MainWindow(QMainWindow):
         self._scan_tab    = ScanTab()
         self._storage_tab = StorageTab()
         self._tabs.addTab(self._scan_tab,    "⚡  Duplicate Scanner")
-        self._tabs.addTab(self._storage_tab, "🗂  Storage Tree View")
+        self._tabs.addTab(self._storage_tab, "🗂  Storage Breakdown")
         body_lay.addWidget(self._tabs, stretch=1)
 
         root_lay.addWidget(body, stretch=1)
 
-        # Status bar
         self._status = QStatusBar()
         self.setStatusBar(self._status)
         self._status.showMessage("Ready — select a folder to begin.")
@@ -118,8 +119,32 @@ class MainWindow(QMainWindow):
         sb.del_btn.clicked.connect(self._delete_checked)
 
         st.dup_tree.customContextMenuRequested.connect(self._ctx_scan)
-        stt.load_btn.clicked.connect(self._load_storage_tree)
+
+        # Auto-load storage when the tab is activated
+        self._tabs.currentChanged.connect(self._on_tab_changed)
+
+        # Chart segment click → scroll + highlight tree row
+        stt.chart.segment_clicked.connect(self._on_chart_segment_clicked)
         stt.stor_tree.customContextMenuRequested.connect(self._ctx_storage)
+
+    # ── Tab switch ────────────────────────────────────────────────────────────
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Auto-load storage tree when the user switches to tab 1."""
+        if index == 1 and self._selected_root:
+            if self._selected_root != self._storage_loaded_for:
+                self._load_storage_tree()
+
+    def _on_chart_segment_clicked(self, path: str) -> None:
+        """Scroll the detail tree to the folder matching *path*."""
+        tree = self._storage_tab.stor_tree
+        for i in range(tree.topLevelItemCount()):
+            top  = tree.topLevelItem(i)
+            data = top.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("path") == path:
+                tree.scrollToItem(top, QTreeWidget.ScrollHint.PositionAtTop)
+                tree.setCurrentItem(top)
+                break
 
     # ── Browse ────────────────────────────────────────────────────────────────
 
@@ -127,9 +152,13 @@ class MainWindow(QMainWindow):
         d = QFileDialog.getExistingDirectory(self, "Select Folder", str(Path.home()))
         if not d:
             return
-        self._selected_root = d
+        self._selected_root  = d
+        self._storage_loaded_for = ""      # force storage refresh
 
-        # Truncate display path if too long
+        # Clear stale storage view immediately
+        self._storage_tab.chart.clear()
+        self._storage_tab.stor_tree.clear()
+
         display = d if len(d) <= 38 else "…" + d[-36:]
         self._sidebar.path_label.setText(display)
         self._sidebar.path_label.setToolTip(d)
@@ -154,7 +183,7 @@ class MainWindow(QMainWindow):
         if is_protected_path(self._selected_root):
             QMessageBox.critical(
                 self, "This Folder is Protected",
-                "You've selected a Windows system folder. Scanning it could be harmful.\n\n"
+                "You've selected a Windows system folder — scanning it could be harmful.\n\n"
                 "Please choose a personal folder like Documents, Downloads, or Desktop.",
             )
             return
@@ -172,7 +201,7 @@ class MainWindow(QMainWindow):
             match_mode=sb.match_mode(),
             min_size=sb.min_spin.value() * 1024,
             ext_filter=sb.ext_input.text(),
-            workers=optimal_workers(),          # ← auto-detected, no user input needed
+            workers=optimal_workers(),
         )
         self._scan_worker.progress.connect(self._on_progress)
         self._scan_worker.finished.connect(self._on_scan_done)
@@ -190,7 +219,7 @@ class MainWindow(QMainWindow):
         self._sidebar.set_scan_running(False)
         self._status.showMessage("Stopped.")
 
-    # ── Progress slot ─────────────────────────────────────────────────────────
+    # ── Progress ──────────────────────────────────────────────────────────────
 
     def _on_progress(self, pct: int, msg: str) -> None:
         self._sidebar.prog.setValue(pct)
@@ -237,7 +266,6 @@ class MainWindow(QMainWindow):
             match_str  = "HASH" if g.match_type == "hash" else "NAME"
             group_size = sum(f.size for f in g.files)
 
-            # Group header row
             gh = QTreeWidgetItem()
             gh.setText(0, f"  ▸ Group {g.group_id + 1}  ·  {len(g.files)} files  ·  {match_str}")
             gh.setText(3, fmt_size(group_size))
@@ -249,7 +277,6 @@ class MainWindow(QMainWindow):
             gh.setFlags(gh.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
             tree.addTopLevelItem(gh)
 
-            # File child rows
             for idx, fe in enumerate(g.files):
                 ch = QTreeWidgetItem(gh)
                 ch.setCheckState(0, Qt.CheckState.Unchecked)
@@ -266,7 +293,8 @@ class MainWindow(QMainWindow):
                     ch.setToolTip(0, "✓ Original — kept by auto-select")
                 if fe.protected:
                     ch.setForeground(0, QBrush(QColor("#f0883e")))
-                    ch.setToolTip(0, "🔒 Protected file — cannot be deleted")
+                    ch.setToolTip(0,
+                        "⚠ Executable / script file — verify before deleting")
                 total_files += 1
 
             gh.setExpanded(True)
@@ -278,73 +306,94 @@ class MainWindow(QMainWindow):
 
     def _load_storage_tree(self) -> None:
         if not self._selected_root:
-            QMessageBox.warning(self, "No Folder Selected",
-                "Please click 'Browse Folder' first.")
             return
         self._storage_tab.stor_tree.clear()
+        self._storage_tab.chart.clear()
         self._sidebar.prog.setValue(0)
         self._sidebar.set_scan_running(True)
 
-        self._storage_worker = StorageWorker(
-            self._selected_root,
-            self._storage_tab.depth_spin.value(),
-        )
+        self._storage_worker = StorageWorker(self._selected_root, _STORAGE_DEPTH)
         self._storage_worker.progress.connect(self._on_progress)
         self._storage_worker.finished.connect(self._on_storage_done)
         self._storage_worker.error.connect(self._on_error)
         self._storage_worker.start()
-        self._tabs.setCurrentIndex(1)
 
     def _on_storage_done(self, tree_data: dict) -> None:
         self._sidebar.set_scan_running(False)
         self._sidebar.prog.setValue(100)
+        self._storage_loaded_for = self._selected_root
+
         stor = self._storage_tab.stor_tree
         stor.clear()
 
-        root_item = self._make_storage_item(stor, tree_data)
+        # ── Populate the colour chart ── returns path→colour map
+        colour_map = self._storage_tab.chart.set_data(tree_data)
+
+        # ── Set the max-size so the delegate can draw proportional bars ───────
+        self._storage_tab.size_delegate.set_max_size(tree_data["size"])
+
+        # ── Build the tree ────────────────────────────────────────────────────
+        root_item = self._make_storage_item(stor, tree_data, colour="#58a6ff",
+                                             colour_map=colour_map)
         root_item.setForeground(0, QBrush(QColor("#58a6ff")))
-        f = root_item.font(0); f.setBold(True); f.setPointSize(12)
-        root_item.setFont(0, f)
+        fnt = root_item.font(0); fnt.setBold(True); fnt.setPointSize(12)
+        root_item.setFont(0, fnt)
         root_item.setExpanded(True)
 
         size_str = fmt_size(tree_data["size"]) if tree_data["size"] else "—"
         self._status.showMessage(
-            f"Tree loaded: {self._selected_root}  |  {size_str} total"
+            f"Storage loaded: {self._selected_root}  |  {size_str} total"
         )
 
-    def _make_storage_item(self, parent, node: dict) -> QTreeWidgetItem:
-        """Recursively build the storage tree."""
+    def _make_storage_item(
+        self,
+        parent,
+        node: dict,
+        colour: str = "#484f58",
+        colour_map: dict | None = None,
+    ) -> QTreeWidgetItem:
+        """Recursively build the storage detail tree."""
         if isinstance(parent, QTreeWidget):
             item = QTreeWidgetItem()
             parent.addTopLevelItem(item)
         else:
             item = QTreeWidgetItem(parent)
 
-        is_dir = node["is_dir"]
-        prot   = node["protected"]
-        name   = node["name"]
-        size   = node["size"]
-        path   = node["path"]
+        is_dir  = node["is_dir"]
+        prot    = node["protected"]
+        name    = node["name"]
+        size    = node["size"]
+        path    = node["path"]
+
+        # Top-level children have their own colour from the chart palette
+        row_colour = (colour_map or {}).get(path, colour)
 
         if is_dir:
             item.setText(0, "📁  " + name)
             item.setText(1, fmt_size(size) if size else "")
-            item.setForeground(0, QBrush(QColor("#e3b341")))
+            item.setForeground(0, QBrush(QColor(row_colour)))
             fnt = item.font(0); fnt.setBold(True); item.setFont(0, fnt)
         else:
             item.setText(0, "📄  " + name)
             item.setText(1, fmt_size(size))
-            col = QColor("#f0883e") if prot else QColor("#8b949e")
-            item.setForeground(0, QBrush(col))
+            file_col = QColor("#f0883e") if prot else QColor("#8b949e")
+            item.setForeground(0, QBrush(file_col))
             if prot:
-                item.setToolTip(0, "🔒 System file — cannot be deleted")
+                item.setToolTip(0, "⚠  System / protected — deletion blocked")
 
         item.setText(2, path)
+
+        # Store raw size + colour for the size-bar delegate
+        from features.storage.chart import StorageChart
+        item.setData(1, StorageChart.SIZE_ROLE,   size)
+        item.setData(1, StorageChart.COLOUR_ROLE, row_colour)
+
         item.setData(0, Qt.ItemDataRole.UserRole,
                      {"path": path, "is_dir": is_dir, "protected": prot})
 
         for child_node in node.get("children", []):
-            self._make_storage_item(item, child_node)
+            self._make_storage_item(item, child_node,
+                                    colour=row_colour, colour_map=None)
 
         if is_dir and node.get("children"):
             item.setExpanded(True)
@@ -363,24 +412,26 @@ class MainWindow(QMainWindow):
             return
 
         menu = QMenu(self)
-        a_open   = menu.addAction("📂  Show in File Explorer")
+        a_open    = menu.addAction("📂  Show in File Explorer")
         menu.addSeparator()
         a_check   = menu.addAction("☑  Mark for deletion")
         a_uncheck = menu.addAction("☐  Unmark")
         menu.addSeparator()
         a_trash   = menu.addAction("🗑  Delete this file now")
 
-        if fe.protected:
+        if is_protected_path(fe.path):
             a_trash.setEnabled(False)
-            a_trash.setText("🔒  Delete this file  (blocked — protected)")
+            a_trash.setText("🔒  Delete  (blocked — system file)")
 
         chosen = menu.exec(tree.viewport().mapToGlobal(pos))
         if   chosen == a_open:    open_in_explorer(fe.path)
         elif chosen == a_check:   item.setCheckState(0, Qt.CheckState.Checked)
         elif chosen == a_uncheck: item.setCheckState(0, Qt.CheckState.Unchecked)
         elif chosen == a_trash:
-            # Remove from tree immediately, then trash
-            self._trash_paths([fe.path], on_success=lambda: self._remove_scan_item(item))
+            self._trash_paths(
+                [fe.path],
+                on_success=lambda: self._remove_scan_item(item),
+            )
 
     def _ctx_storage(self, pos: QPoint) -> None:
         tree  = self._storage_tab.stor_tree
@@ -388,7 +439,7 @@ class MainWindow(QMainWindow):
         if not items:
             return
 
-        menu   = QMenu(self)
+        menu    = QMenu(self)
         a_open  = menu.addAction("📂  Show in File Explorer")
         menu.addSeparator()
         a_trash = menu.addAction(f"🗑  Delete {len(items)} selected item(s)")
@@ -400,29 +451,35 @@ class MainWindow(QMainWindow):
                 open_in_explorer(data["path"])
 
         elif chosen == a_trash:
-            protected = [
+            sys_blocked = [
                 it for it in items
-                if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("protected")
+                if is_protected_path(
+                    (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("path", "")
+                )
             ]
-            if protected:
+            if sys_blocked:
                 QMessageBox.warning(
-                    self, "Some Items Are Protected",
-                    f"{len(protected)} item(s) are Windows system files and cannot be deleted.\n"
+                    self, "Some Items Are System Files",
+                    f"{len(sys_blocked)} item(s) are in Windows system folders "
+                    "and cannot be deleted.\n"
                     "Only your personal files will be removed.",
                 )
+
             safe_items = [
                 it for it in items
                 if it.data(0, Qt.ItemDataRole.UserRole)
-                and not it.data(0, Qt.ItemDataRole.UserRole).get("protected")
+                and not is_protected_path(
+                    it.data(0, Qt.ItemDataRole.UserRole).get("path", "")
+                )
             ]
             paths = [it.data(0, Qt.ItemDataRole.UserRole)["path"] for it in safe_items]
 
-            def _remove_storage_items():
+            def _remove_from_tree():
                 for it in safe_items:
                     parent = it.parent() or tree.invisibleRootItem()
                     parent.removeChild(it)
 
-            self._trash_paths(paths, on_success=_remove_storage_items)
+            self._trash_paths(paths, on_success=_remove_from_tree)
 
     # ── Deletion core ─────────────────────────────────────────────────────────
 
@@ -432,46 +489,74 @@ class MainWindow(QMainWindow):
         on_success: Callable | None = None,
     ) -> None:
         """
-        Move *paths* to the Recycle Bin with a friendly confirmation dialog.
-        Calls *on_success()* after a successful (even partial) deletion.
+        Move *paths* to the Recycle Bin with friendly, layered confirmation.
+
+        Layer 1 — system paths are hard-blocked (PROTECTED_ROOTS).
+        Layer 2 — files with executable extensions in USER paths: warn + ask.
+        Layer 3 — main confirmation for everything else.
         """
         if not paths:
             return
 
-        # Double-check safety (never trust caller alone)
-        safe    = [p for p in paths if not is_protected_path(p) and not is_protected_file(p)]
-        blocked = len(paths) - len(safe)
+        # ── Hard block: system-folder files ───────────────────────────────────
+        sys_blocked = [p for p in paths if is_protected_path(p)]
+        actionable  = [p for p in paths if not is_protected_path(p)]
 
-        if not safe:
+        if not actionable:
             QMessageBox.warning(
                 self, "Nothing to Delete",
-                "The selected items are Windows system files and cannot be deleted.\n"
-                "Only files in your personal folders can be removed."
+                "The selected items are in Windows system folders and cannot be removed.\n"
+                "Only files in your personal folders can be deleted."
             )
             return
 
-        # ── Compose a user-friendly confirmation message ───────────────────────
+        # ── Soft warn: executable / script extensions in user folders ─────────
+        script_files = [p for p in actionable if is_protected_file(p)]
+        safe         = actionable   # all non-system files are actionable
+
+        if script_files:
+            n = len(script_files)
+            ext_list = ", ".join(
+                sorted({Path(p).suffix.lower() for p in script_files})
+            )
+            warn_reply = QMessageBox.warning(
+                self,
+                "Executable Files Detected",
+                f"{n} file(s) have program/script extensions ({ext_list}).\n\n"
+                "These could be applications or scripts — not just data files.\n"
+                "Are you sure you want to delete them too?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if warn_reply != QMessageBox.StandardButton.Yes:
+                # Remove the script files from the deletion list
+                safe = [p for p in actionable if not is_protected_file(p)]
+                if not safe:
+                    self._status.showMessage("Deletion cancelled.")
+                    return
+
+        # ── Main confirmation ─────────────────────────────────────────────────
         if len(safe) == 1:
             fname = Path(safe[0]).name
-            msg   = f"Move \"{fname}\" to the Recycle Bin?\n\nYou can restore it later if needed."
+            msg   = f'Move "{fname}" to the Recycle Bin?\n\nYou can restore it later if needed.'
         else:
-            msg   = f"Move {len(safe)} file(s) to the Recycle Bin?\n\nYou can restore them later if needed."
-
-        if blocked:
-            msg += (
-                f"\n\n⚠  {blocked} protected system file(s) were automatically skipped."
+            msg   = (
+                f"Move {len(safe)} file(s) to the Recycle Bin?\n\n"
+                "You can restore them later if needed."
             )
+        if sys_blocked:
+            msg += f"\n\n⚠  {len(sys_blocked)} system file(s) were automatically skipped."
 
         reply = QMessageBox.question(
             self, "Confirm Deletion", msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,   # default to No (safer)
+            QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # ── Do the actual trash ───────────────────────────────────────────────
-        errors: list[str] = []
+        # ── Execute ───────────────────────────────────────────────────────────
+        errors:  list[str] = []
         deleted: list[str] = []
         for p in safe:
             try:
@@ -482,24 +567,22 @@ class MainWindow(QMainWindow):
 
         if errors:
             QMessageBox.warning(
-                self, "Some Files Couldn't Be Deleted",
-                "The following files could not be moved to the Recycle Bin:\n\n"
+                self, "Some Files Couldn't Be Moved",
+                "The following items could not be moved to the Recycle Bin:\n\n"
                 + "\n".join(errors[:10])
                 + ("\n…and more." if len(errors) > 10 else ""),
             )
 
         ok = len(deleted)
         if ok:
-            self._status.showMessage(
-                f"✓ {ok} file(s) moved to Recycle Bin."
-                + (f"  ({len(errors)} failed.)" if errors else "")
-            )
+            suffix = f"  ({len(errors)} failed.)" if errors else ""
+            self._status.showMessage(f"✓ {ok} file(s) moved to Recycle Bin.{suffix}")
             if on_success:
                 on_success()
 
     def _delete_checked(self) -> None:
         """Delete all checked (marked) items in the duplicate scanner tree."""
-        tree  = self._scan_tab.dup_tree
+        tree              = self._scan_tab.dup_tree
         items_to_delete: list[tuple[str, QTreeWidgetItem]] = []
 
         for i in range(tree.topLevelItemCount()):
@@ -508,7 +591,7 @@ class MainWindow(QMainWindow):
                 ch = parent.child(j)
                 if ch.checkState(0) == Qt.CheckState.Checked:
                     fe: FileEntry = ch.data(0, Qt.ItemDataRole.UserRole)
-                    if fe and not fe.protected:
+                    if fe:
                         items_to_delete.append((fe.path, ch))
 
         if not items_to_delete:
@@ -528,13 +611,11 @@ class MainWindow(QMainWindow):
                 parent = item.parent()
                 if parent:
                     parent.removeChild(item)
-                    # Clean up empty group headers
                     if parent.childCount() == 0:
                         idx = tree.indexOfTopLevelItem(parent)
                         if idx >= 0:
                             tree.takeTopLevelItem(idx)
             self._sync_count_label()
-            # Delayed re-scan to refresh stats
             QTimer.singleShot(800, self._start_scan)
 
         self._trash_paths(paths, on_success=_remove_from_tree)
@@ -542,7 +623,6 @@ class MainWindow(QMainWindow):
     # ── Tree helpers ──────────────────────────────────────────────────────────
 
     def _remove_scan_item(self, item: QTreeWidgetItem) -> None:
-        """Remove a single file item from the scanner tree; clean up empty groups."""
         tree   = self._scan_tab.dup_tree
         parent = item.parent()
         if not parent:
@@ -556,32 +636,29 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(800, self._start_scan)
 
     def _sync_count_label(self) -> None:
-        """Recount groups/files and update the count label after tree edits."""
-        tree    = self._scan_tab.dup_tree
-        groups  = tree.topLevelItemCount()
-        files   = sum(
-            tree.topLevelItem(i).childCount()
-            for i in range(groups)
-        )
+        tree   = self._scan_tab.dup_tree
+        groups = tree.topLevelItemCount()
+        files  = sum(tree.topLevelItem(i).childCount() for i in range(groups))
+        g_s    = "s" if groups != 1 else ""
+        f_s    = "s" if files  != 1 else ""
         self._scan_tab.count_lbl.setText(
-            f"{groups} group{'s' if groups != 1 else ''} · {files} file{'s' if files != 1 else ''}"
+            f"{groups} group{g_s} · {files} file{f_s}"
         )
 
-    # ── Selection helpers ─────────────────────────────────────────────────────
+    # ── Select / clear ────────────────────────────────────────────────────────
 
     def _select_dupes(self) -> None:
-        """Check all but the first (original) file in each group. Skip protected."""
+        """
+        Check all but the first (original) file in every group.
+        Protected-extension files ARE included — safety is enforced at deletion.
+        """
         tree = self._scan_tab.dup_tree
         for i in range(tree.topLevelItemCount()):
             parent = tree.topLevelItem(i)
             for j in range(parent.childCount()):
-                ch = parent.child(j)
-                fe: FileEntry = ch.data(0, Qt.ItemDataRole.UserRole)
-                if fe and fe.protected:
-                    ch.setCheckState(0, Qt.CheckState.Unchecked)
-                else:
-                    state = Qt.CheckState.Unchecked if j == 0 else Qt.CheckState.Checked
-                    ch.setCheckState(0, state)
+                ch    = parent.child(j)
+                state = Qt.CheckState.Unchecked if j == 0 else Qt.CheckState.Checked
+                ch.setCheckState(0, state)
 
     def _clear_sel(self) -> None:
         tree = self._scan_tab.dup_tree
@@ -590,7 +667,7 @@ class MainWindow(QMainWindow):
             for j in range(parent.childCount()):
                 parent.child(j).setCheckState(0, Qt.CheckState.Unchecked)
 
-    # ── Stats update ──────────────────────────────────────────────────────────
+    # ── Stats ─────────────────────────────────────────────────────────────────
 
     def _update_stats(self, groups: list[DuplicateGroup]) -> None:
         dupes = sum(len(g.files) - 1 for g in groups)

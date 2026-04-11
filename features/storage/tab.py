@@ -1,66 +1,61 @@
 """
 features/storage/tab.py
-The "Storage Tree View" tab widget — pure UI, no worker logic.
-
-Exposes:
-    stor_tree   QTreeWidget  — main tree
-    depth_spin  QSpinBox     — depth selector
-    load_btn    QPushButton  — triggers StorageWorker (signal wired externally)
+Storage Tree View tab — visual chart + detail tree.
+Depth and Load controls are removed; loading is triggered automatically.
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QTreeWidget, QHeaderView, QAbstractItemView,
-    QPushButton, QSpinBox,
+    QWidget, QVBoxLayout, QLabel, QTreeWidget,
+    QHeaderView, QAbstractItemView,
 )
 from PyQt6.QtCore import Qt
 
+from features.storage.chart import StorageChart, SizeBarDelegate
+
 
 class StorageTab(QWidget):
-    """Directory size-tree view."""
+    """
+    Layout:
+        [section heading]
+        [StorageChart  — proportional colour bar, 84 px]
+        [info  banner]
+        [QTreeWidget  — detail tree with size-bar delegate]
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._size_delegate = SizeBarDelegate()
         self._build()
+
+    @property
+    def size_delegate(self) -> SizeBarDelegate:
+        return self._size_delegate
+
+    # ── construction ──────────────────────────────────────────────────────────
 
     def _build(self) -> None:
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 12, 16, 12)
         lay.setSpacing(10)
 
-        # ── Section heading row ───────────────────────────────────────────────
-        heading_row = QHBoxLayout()
-        heading = QLabel("STORAGE TREE VIEW")
+        # Section heading
+        heading = QLabel("STORAGE BREAKDOWN")
         heading.setObjectName("sectionLabel")
-        heading_row.addWidget(heading)
-        heading_row.addStretch()
+        lay.addWidget(heading)
 
-        depth_lbl = QLabel("Depth:")
-        depth_lbl.setStyleSheet("color:#6e7681; font-size:11px;")
-        heading_row.addWidget(depth_lbl)
+        # ── Chart ─────────────────────────────────────────────────────────────
+        self.chart = StorageChart()
+        lay.addWidget(self.chart)
 
-        self.depth_spin = QSpinBox()
-        self.depth_spin.setRange(1, 8)
-        self.depth_spin.setValue(4)
-        self.depth_spin.setSuffix(" levels")
-        self.depth_spin.setFixedWidth(115)
-        heading_row.addWidget(self.depth_spin)
-        heading_row.addSpacing(8)
-
-        self.load_btn = QPushButton("↺  Load Tree")
-        self.load_btn.setFixedWidth(115)
-        self.load_btn.setMinimumHeight(32)
-        heading_row.addWidget(self.load_btn)
-        lay.addLayout(heading_row)
-
-        # ── Info banner ───────────────────────────────────────────────────────
+        # ── Tip banner ────────────────────────────────────────────────────────
         info = QLabel(
-            "💡  Right-click any file or folder to open in Explorer or delete safely."
+            "💡  Click any chart segment to jump to that folder  ·  "
+            "Right-click a row to open in Explorer or delete safely."
         )
         info.setStyleSheet("color:#484f58; font-size:11px; padding:4px 2px;")
         lay.addWidget(info)
 
-        # ── Tree ──────────────────────────────────────────────────────────────
+        # ── Detail tree ───────────────────────────────────────────────────────
         self.stor_tree = QTreeWidget()
         self.stor_tree.setColumnCount(3)
         self.stor_tree.setHeaderLabels(["  Name", "Size", "Full Path"])
@@ -71,10 +66,13 @@ class StorageTab(QWidget):
         self.stor_tree.setIndentation(22)
         self.stor_tree.setUniformRowHeights(True)
 
+        # Install the custom size-bar painter on column 1
+        self.stor_tree.setItemDelegateForColumn(1, self._size_delegate)
+
         hdr = self.stor_tree.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.stor_tree.setColumnWidth(1, 105)
+        self.stor_tree.setColumnWidth(1, 145)
 
         lay.addWidget(self.stor_tree, stretch=1)

@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "A:\web development\desktopApp\RedundantFileRemover\features\storage\chart.py", line 252, in paint
+    g = QLinearGradient(bar_r.topLeft(), bar_r.bottomLeft())
+TypeError: arguments did not match any overloaded call:
+  QLinearGradient(): too many arguments
+  QLinearGradient(start: QPointF, finalStop: QPointF): argument 1 has unexpected type 'QPoint'
+  QLinearGradient(xStart: float, yStart: float, xFinalStop: float, yFinalStop: float): argument 1 has unexpected type 'QPoint'
+  QLinearGradient(a0: QLinearGradient): argument 1 has unexpected type 'QPoint'
