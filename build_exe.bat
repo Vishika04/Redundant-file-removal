@@ -4,6 +4,7 @@ color 0A
 echo.
 echo  ============================================
 echo    Building Standalone EXE with PyInstaller
+echo    Redundant File Remover  v3.1
 echo  ============================================
 echo.
 
@@ -13,14 +14,8 @@ if %errorlevel% neq 0 (
     pause & exit /b 1
 )
 
-python -m PyInstaller ^
-    --onefile ^
-    --windowed ^
-    --name "RedundantFileRemover" ^
-    --icon "assets\logo.ico" ^
-    --add-data "README.md;." ^
-    --add-data "assets\*;assets" ^
-    "%~dp0redundant_file_remover.py"
+:: Use the .spec file so all feature sub-packages + assets are bundled correctly
+python -m PyInstaller --clean RedundantFileRemover.spec
 
 if %errorlevel% equ 0 (
     echo.

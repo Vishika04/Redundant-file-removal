@@ -1,5 +1,17 @@
 """
-Redundant File Remover v3.0
+╔══════════════════════════════════════════════════════════════════════╗
+║  DEPRECATED — DO NOT RUN THIS FILE DIRECTLY                         ║
+║                                                                      ║
+║  This monolithic file has been refactored into the features/ package.║
+║  The new entry point is:  main.py                                    ║
+║                                                                      ║
+║  Run:  python main.py                                                ║
+║        (or double-click run.bat on Windows)                          ║
+║                                                                      ║
+║  This file is kept for historical reference only.                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Original: Redundant File Remover v3.0
 Professional PyQt6 app — Duplicate Scanner + Storage Tree View
 OS-safe: skips system/protected paths, always uses Recycle Bin
 """
