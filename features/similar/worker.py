@@ -10,7 +10,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, cast
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -54,6 +54,9 @@ class _Fingerprint:
     vector: object
     duration: float = 0.0
     algorithm: str = ""
+
+
+ImageSignature = tuple[int, int, tuple[float, float, float]]
 
 
 class SimilarityWorker(QThread):
@@ -168,9 +171,13 @@ class SimilarityWorker(QThread):
             image_data = self._image_signature(path)
             if image_data is None:
                 return None
+            phash, dhash, color = image_data
             entry.media_kind = "image"
-            entry.fingerprint = f"{image_data[0]:016x}:{image_data[1]:016x}"
-            return _Fingerprint(entry=entry, kind="image", vector=image_data, algorithm="OpenCV pHash + dHash")
+            entry.fingerprint = (
+                f"{phash:016x}:{dhash:016x}:"
+                f"{int(round(color[0])):03d}-{int(round(color[1])):03d}-{int(round(color[2])):03d}"
+            )
+            return _Fingerprint(entry=entry, kind="image", vector=image_data, algorithm="OpenCV pHash + dHash + color")
 
         if suffix in AUDIO_EXTS:
             audio_data = self._audio_signature(path)
@@ -186,10 +193,31 @@ class SimilarityWorker(QThread):
     def _image_signature(self, path: Path):
         if cv2 is None or np is None:
             return None
-        img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-        if img is None:
+        image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+        if image is None:
             return None
-        return _image_phash(img), _image_dhash(img)
+        image_array = np.asarray(image)
+
+        if image_array.ndim == 2:
+            gray = image_array
+            color = np.asarray([float(image_array.mean())] * 3, dtype=np.float32)
+        else:
+            bgr = image_array[:, :, :3]
+            if image_array.shape[2] >= 4:
+                alpha = image_array[:, :, 3]
+                mask = alpha > 0
+                if mask.any():
+                    visible_pixels = bgr[mask]
+                    color = np.asarray(visible_pixels.mean(axis=0), dtype=np.float32)
+                else:
+                    color = np.asarray(bgr.reshape(-1, 3).mean(axis=0), dtype=np.float32)
+                gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+                gray = np.where(mask, gray, 0).astype(np.uint8)
+            else:
+                color = np.asarray(bgr.reshape(-1, 3).mean(axis=0), dtype=np.float32)
+                gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+        return _image_phash(gray), _image_dhash(gray), tuple(float(value) for value in color)
 
     def _audio_signature(self, path: Path):
         if np is None:
@@ -286,16 +314,22 @@ class SimilarityWorker(QThread):
             if len(member_ids) < 2:
                 continue
             members = [items[idx].entry for idx in member_ids]
+
+            member_scores: list[float] = []
+            for idx in member_ids:
+                scores = [
+                    pair_scores.get((min(idx, other), max(idx, other)), 0.0)
+                    for other in member_ids
+                    if other != idx
+                ]
+                score = max(scores) if scores else threshold
+                items[idx].entry.similarity_score = round(score * 100.0, 1)
+                member_scores.append(score)
+
             for member in members:
                 member.group_id = gid
 
-            score_values = [
-                pair_scores.get((min(a, b), max(a, b)), 0.0)
-                for pos, a in enumerate(member_ids)
-                for b in member_ids[pos + 1:]
-                if pair_scores.get((min(a, b), max(a, b)), 0.0) > 0.0
-            ]
-            group_score = max(score_values) if score_values else threshold
+            group_score = sum(member_scores) / len(member_scores) if member_scores else threshold
             group = DuplicateGroup(
                 gid,
                 files=members,
@@ -329,7 +363,7 @@ def _image_phash(img):
     if cv2 is None or np is None:
         return 0
     resized = cv2.resize(img, (32, 32), interpolation=cv2.INTER_AREA)
-    dct = cv2.dct(np.float32(resized))
+    dct = cv2.dct(resized.astype(np.float32))
     block = dct[:8, :8]
     median = float(np.median(block[1:, 1:]))
     bits = block > median
@@ -357,13 +391,21 @@ def _hamming_similarity(a: int, b: int) -> float:
     return 1.0 - (distance / 64.0)
 
 
+def _color_similarity(left_color: tuple[float, float, float], right_color: tuple[float, float, float]) -> float:
+    distance = math.sqrt(sum((float(left) - float(right)) ** 2 for left, right in zip(left_color, right_color)))
+    max_distance = math.sqrt(3.0 * (255.0 ** 2))
+    return max(0.0, min(1.0, 1.0 - (distance / max_distance)))
+
+
 def _compare_fingerprints(kind: str, left: _Fingerprint, right: _Fingerprint) -> float:
     if kind == "image":
-        left_phash, left_dhash = left.vector
-        right_phash, right_dhash = right.vector
+        left_phash, left_dhash, left_color = cast(ImageSignature, left.vector)
+        right_phash, right_dhash, right_color = cast(ImageSignature, right.vector)
         phash_sim = _hamming_similarity(int(left_phash), int(right_phash))
         dhash_sim = _hamming_similarity(int(left_dhash), int(right_dhash))
-        return max(0.0, min(1.0, phash_sim * 0.7 + dhash_sim * 0.3))
+        shape_sim = phash_sim * 0.7 + dhash_sim * 0.3
+        color_sim = _color_similarity(left_color, right_color)
+        return max(0.0, min(1.0, shape_sim * 0.7 + color_sim * 0.3))
 
     if np is None:
         return 0.0

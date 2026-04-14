@@ -16,6 +16,7 @@ class FileEntry:
     hash_sha256: str  = ""
     media_kind: str   = ""
     fingerprint: str   = ""
+    similarity_score: float = 0.0
     group_id:   int  = -1
     protected:  bool = False
 

@@ -448,7 +448,8 @@ class MainWindow(QMainWindow):
                 ch.setText(0, "    " + fe.name)
                 ch.setText(1, f"G{g.group_id + 1}")
                 ch.setText(2, kind_str)
-                ch.setText(3, f"{g.similarity_score:.1f}%")
+                score = fe.similarity_score if fe.similarity_score > 0 else g.similarity_score
+                ch.setText(3, f"{score:.1f}%")
                 ch.setText(4, fmt_size(fe.size))
                 ch.setText(5, fe.path)
                 ch.setData(0, Qt.ItemDataRole.UserRole, fe)
