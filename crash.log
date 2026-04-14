@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "c:\Users\Admin\OneDrive\Desktop\MyCalculator\Redundant-file-removal\main_window.py", line 294, in _on_scan_done
-    self._status.showMessage(f"Done — {len(groups)} duplicate group(s) found.")
-    ^^^^^^^^^^^^
-AttributeError: 'MainWindow' object has no attribute '_status'
