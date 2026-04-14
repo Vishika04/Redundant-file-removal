@@ -1,0 +1,4 @@
+﻿Alpha project task list
+1. scan folder
+2. review duplicates
+3. remove safely

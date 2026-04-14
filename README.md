@@ -2,7 +2,7 @@
   <img src="assets/logo.png" alt="RedunClear Logo" width="600"/>
 </div>
 
-# 🗂 Redundant File Remover v3.0
+# 🗂 Redundant File Remover v3.2
 
 > A fast, safe, professional desktop app to **find and remove duplicate files** — with a live Storage Tree View, SHA-256 content scanning, and always-safe Recycle Bin deletion.
 
@@ -20,6 +20,7 @@
 - 🎨 **Modern dark UI** — GitHub-style dark theme with branch-line tree nodes.
 - 🖱️ **Right-click context menus** — open in Explorer, check/uncheck, delete individual files.
 - 🔍 **Multiple match modes** — Content Hash (SHA-256), File Name, or both.
+- ◈ **Similar Files tab** — perceptual image matching with pHash/dHash plus audio fingerprinting with a similarity threshold slider.
 
 ---
 
@@ -108,6 +109,10 @@ Want a ready-to-run `.exe` that doesn't even require Python installed on the tar
 |---|---|---|
 | `PyQt6` | ≥ 6.4 | GUI framework |
 | `send2trash` | ≥ 1.8 | Safe Recycle Bin deletion |
+| `numpy` | ≥ 1.24 | Numeric array processing for fingerprints |
+| `opencv-python` | ≥ 4.8 | Image perceptual hashing (pHash/dHash) |
+| `librosa` | ≥ 0.10 | Audio feature extraction / fingerprinting |
+| `pydub` | ≥ 0.25 | Audio decoding fallback for media scans |
 
 All other imports (`os`, `hashlib`, `pathlib`, etc.) are Python standard library — no extra install needed.
 

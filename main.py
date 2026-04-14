@@ -27,7 +27,7 @@ def main() -> None:
     sys.excepthook = global_exception_handler
     app = QApplication(sys.argv)
     app.setApplicationName("Redundant File Remover")
-    app.setApplicationVersion("3.1")
+    app.setApplicationVersion("3.2")
     app.setOrganizationName("RedundantFileRemover")
     app.setStyle("Fusion")
     app.setPalette(build_dark_palette())
