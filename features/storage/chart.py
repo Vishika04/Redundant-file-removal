@@ -141,7 +141,7 @@ class StorageChart(QWidget):
             top_c = base.lighter(150 if hov else 125)
             bot_c = base.darker( 140 if hov else 115)
 
-            grad = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            grad = QLinearGradient(rect.left(), rect.top(), rect.left(), rect.bottom())
             grad.setColorAt(0.0, top_c)
             grad.setColorAt(0.5, base)
             grad.setColorAt(1.0, bot_c)
@@ -249,7 +249,7 @@ class SizeBarDelegate(QStyledItemDelegate):
             bar_r.setWidth(bar_w)
 
             c = QColor(colour)
-            g = QLinearGradient(bar_r.topLeft(), bar_r.bottomLeft())
+            g = QLinearGradient(bar_r.left(), bar_r.top(), bar_r.left(), bar_r.bottom())
             g.setColorAt(0, c.lighter(130))
             g.setColorAt(1, c.darker(115))
             painter.fillRect(bar_r, QBrush(g))

@@ -46,7 +46,7 @@ QGroupBox::title { subcontrol-origin: margin; left: 14px;
 /* ── Buttons ── */
 QPushButton { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
               padding: 7px 16px; color: #8b949e; font-weight: 500;
-              transition: background 150ms ease; }
+              }
 QPushButton:hover   { background: #1c2128; border-color: #58a6ff; color: #c9d1d9; }
 QPushButton:pressed { background: #010d1a; }
 QPushButton:disabled { color: #21262d; border-color: #161b22; background: #0d1117; }
@@ -129,7 +129,7 @@ QSplitter::handle { background: #21262d; width: 1px; }
 QScrollBar:vertical   { background: #010409; width: 7px;  margin: 0; }
 QScrollBar:horizontal { background: #010409; height: 7px; margin: 0; }
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
-    background: #30363d; border-radius: 4px; min-length: 30px; }
+    background: #30363d; border-radius: 4px; }
 QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
     background: #1f6feb; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }

@@ -26,6 +26,8 @@ from features.core.utils     import (
 )
 from features.scanner.worker  import ScanWorker
 from features.scanner.tab     import ScanTab
+from features.similar.worker  import SimilarityWorker
+from features.similar.tab     import SimilarTab
 from features.storage.worker  import StorageWorker
 from features.storage.tab     import StorageTab
 from features.storage.chart   import StorageChart
@@ -39,7 +41,7 @@ _STORAGE_DEPTH = 4   # fixed tree depth, no user control needed
 class MainWindow(QMainWindow):
     """Top-level window — pure orchestration, no widget building."""
 
-    APP_VERSION = "v3.1"
+    APP_VERSION = "v3.2"
 
     def __init__(self) -> None:
         super().__init__()
@@ -50,6 +52,7 @@ class MainWindow(QMainWindow):
 
         # ── State ─────────────────────────────────────────────────────────────
         self._scan_worker:       Optional[ScanWorker]    = None
+        self._similar_worker:     Optional[SimilarityWorker] = None
         self._storage_worker:    Optional[StorageWorker] = None
         self._groups:            list[DuplicateGroup]    = []
         self._selected_root      = ""
@@ -91,8 +94,10 @@ class MainWindow(QMainWindow):
         self._tabs.setTabPosition(QTabWidget.TabPosition.North)
 
         self._scan_tab    = ScanTab()
+        self._similar_tab = SimilarTab()
         self._storage_tab = StorageTab()
         self._tabs.addTab(self._scan_tab,    "⚡  Duplicate Scanner")
+        self._tabs.addTab(self._similar_tab,  "◈  Similar Files")
         self._tabs.addTab(self._storage_tab, "🗂  Storage Breakdown")
         body_lay.addWidget(self._tabs, stretch=1)
 
@@ -109,6 +114,7 @@ class MainWindow(QMainWindow):
     def _wire_signals(self) -> None:
         sb  = self._sidebar
         st  = self._scan_tab
+        sim = self._similar_tab
         stt = self._storage_tab
 
         sb.browse_btn.clicked.connect(self._on_browse)
@@ -119,6 +125,13 @@ class MainWindow(QMainWindow):
         sb.del_btn.clicked.connect(self._delete_checked)
 
         st.dup_tree.customContextMenuRequested.connect(self._ctx_scan)
+        sim.threshold_slider.valueChanged.connect(self._on_similarity_threshold_changed)
+        sim.scan_btn.clicked.connect(self._start_similarity_scan)
+        sim.stop_btn.clicked.connect(self._abort)
+        sim.select_btn.clicked.connect(self._select_similar_dupes)
+        sim.clear_btn.clicked.connect(self._clear_similar_sel)
+        sim.del_btn.clicked.connect(self._delete_checked_similar)
+        sim.sim_tree.customContextMenuRequested.connect(self._ctx_similar)
 
         # Auto-load storage when the tab is activated
         self._tabs.currentChanged.connect(self._on_tab_changed)
@@ -130,8 +143,8 @@ class MainWindow(QMainWindow):
     # ── Tab switch ────────────────────────────────────────────────────────────
 
     def _on_tab_changed(self, index: int) -> None:
-        """Auto-load storage tree when the user switches to tab 1."""
-        if index == 1 and self._selected_root:
+        """Auto-load storage tree when the storage tab becomes active."""
+        if self._tabs.widget(index) is self._storage_tab and self._selected_root:
             if self._selected_root != self._storage_loaded_for:
                 self._load_storage_tree()
 
@@ -156,8 +169,17 @@ class MainWindow(QMainWindow):
         self._storage_loaded_for = ""      # force storage refresh
 
         # Clear stale storage view immediately
+        self._scan_tab.dup_tree.clear()
+        self._scan_tab.count_lbl.setText("")
         self._storage_tab.chart.clear()
         self._storage_tab.stor_tree.clear()
+        self._sidebar.set_results_available(False)
+        self._sidebar.reset_stats()
+        self._header.reset_chips()
+        self._similar_tab.sim_tree.clear()
+        self._similar_tab.count_lbl.setText("")
+        self._similar_tab.set_results_available(False)
+        self._sync_tree_count(self._similar_tab.sim_tree, self._similar_tab.count_lbl)
 
         display = d if len(d) <= 38 else "…" + d[-36:]
         self._sidebar.path_label.setText(display)
@@ -179,6 +201,13 @@ class MainWindow(QMainWindow):
         if not self._selected_root:
             QMessageBox.warning(self, "No Folder Selected",
                 "Please click 'Browse Folder' to choose a folder first.")
+            return
+        if self._any_worker_running():
+            QMessageBox.information(
+                self,
+                "Scan Already Running",
+                "Please stop the current scan before starting another one.",
+            )
             return
         if is_protected_path(self._selected_root):
             QMessageBox.critical(
@@ -205,7 +234,7 @@ class MainWindow(QMainWindow):
         )
         self._scan_worker.progress.connect(self._on_progress)
         self._scan_worker.finished.connect(self._on_scan_done)
-        self._scan_worker.error.connect(self._on_error)
+        self._scan_worker.error.connect(self._on_scan_error)
         self._scan_worker.start()
 
         self._tabs.setCurrentIndex(0)
@@ -214,9 +243,15 @@ class MainWindow(QMainWindow):
     def _abort(self) -> None:
         if self._scan_worker:
             self._scan_worker.abort()
+        if self._similar_worker:
+            self._similar_worker.abort()
         if self._storage_worker:
             self._storage_worker.abort()
         self._sidebar.set_scan_running(False)
+        self._sidebar.set_results_available(False)
+        if hasattr(self, "_similar_tab"):
+            self._similar_tab.set_scan_running(False)
+            self._similar_tab.set_results_available(False)
         self._status.showMessage("Stopped.")
 
     # ── Progress ──────────────────────────────────────────────────────────────
@@ -228,11 +263,13 @@ class MainWindow(QMainWindow):
     # ── Scan done ─────────────────────────────────────────────────────────────
 
     def _on_scan_done(self, groups: list) -> None:
+        self._scan_worker = None
         self._groups = groups
         self._sidebar.set_scan_running(False)
 
         if not groups:
             self._status.showMessage("No duplicates found.")
+            self._sidebar.set_results_available(False)
             QMessageBox.information(
                 self, "No Duplicates Found 🎉",
                 "This folder has no duplicate files.\nYour storage looks clean!"
@@ -253,6 +290,81 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Something went wrong", msg)
         self._status.showMessage("An error occurred.")
 
+    def _on_scan_error(self, msg: str) -> None:
+        self._scan_worker = None
+        self._sidebar.set_results_available(False)
+        self._on_error(msg)
+
+    def _on_similarity_threshold_changed(self, value: int) -> None:
+        self._similar_tab.threshold_value_lbl.setText(f"{value}%")
+
+    def _start_similarity_scan(self) -> None:
+        if not self._selected_root:
+            QMessageBox.warning(
+                self,
+                "No Folder Selected",
+                "Please click 'Browse Folder' to choose a folder first.",
+            )
+            return
+        if self._any_worker_running():
+            QMessageBox.information(
+                self,
+                "Scan Already Running",
+                "Please stop the current scan before starting another one.",
+            )
+            return
+        if is_protected_path(self._selected_root):
+            QMessageBox.critical(
+                self,
+                "This Folder is Protected",
+                "You've selected a Windows system folder - scanning it could be harmful.\n\n"
+                "Please choose a personal folder like Documents, Downloads, or Desktop.",
+            )
+            return
+
+        self._similar_tab.sim_tree.clear()
+        self._similar_tab.count_lbl.setText("")
+        self._similar_tab.set_scan_running(True)
+        self._similar_tab.set_results_available(False)
+
+        self._similar_worker = SimilarityWorker(
+            root=self._selected_root,
+            threshold=self._similar_tab.threshold_slider.value(),
+            workers=optimal_workers(),
+        )
+        self._similar_worker.progress.connect(self._on_progress)
+        self._similar_worker.finished.connect(self._on_similarity_done)
+        self._similar_worker.error.connect(self._on_similarity_error)
+        self._similar_worker.start()
+
+        self._tabs.setCurrentWidget(self._similar_tab)
+        self._status.showMessage("Scanning similar files...")
+
+    def _on_similarity_done(self, groups: list) -> None:
+        self._similar_worker = None
+        self._similar_tab.set_scan_running(False)
+
+        if not groups:
+            self._status.showMessage("No similar files found.")
+            self._similar_tab.set_results_available(False)
+            QMessageBox.information(
+                self,
+                "No Similar Files Found",
+                "No perceptually similar media files were found in this folder.",
+            )
+            return
+
+        self._populate_similarity_tree(groups)
+        self._similar_tab.set_results_available(True)
+        self._status.showMessage(f"Done - {len(groups)} similar group(s) found.")
+
+    def _on_similarity_error(self, msg: str) -> None:
+        self._similar_worker = None
+        self._similar_tab.set_scan_running(False)
+        self._similar_tab.set_results_available(False)
+        QMessageBox.critical(self, "Similarity scan failed", msg)
+        self._status.showMessage("An error occurred.")
+
     # ── Duplicate tree ────────────────────────────────────────────────────────
 
     def _populate_dup_tree(self, groups: list[DuplicateGroup]) -> None:
@@ -263,7 +375,9 @@ class MainWindow(QMainWindow):
 
         for g in groups:
             bg_color   = QColor(GROUP_COLORS[g.group_id % len(GROUP_COLORS)])
-            match_str  = "HASH" if g.match_type == "hash" else "NAME"
+            match_str  = {"hash": "HASH", "name": "NAME", "both": "BOTH"}.get(
+                g.match_type, g.match_type.upper()
+            )
             group_size = sum(f.size for f in g.files)
 
             gh = QTreeWidgetItem()
@@ -301,6 +415,56 @@ class MainWindow(QMainWindow):
 
         tree.setSortingEnabled(True)
         self._scan_tab.count_lbl.setText(f"{len(groups)} groups · {total_files} files")
+
+    def _populate_similarity_tree(self, groups: list[DuplicateGroup]) -> None:
+        tree = self._similar_tab.sim_tree
+        tree.clear()
+        tree.setSortingEnabled(False)
+        total_files = 0
+
+        for g in groups:
+            bg_color = QColor(GROUP_COLORS[g.group_id % len(GROUP_COLORS)])
+            kind_str = "IMAGE" if g.match_type == "image" else "AUDIO"
+            group_size = sum(f.size for f in g.files)
+
+            gh = QTreeWidgetItem()
+            gh.setText(
+                0,
+                f"  ▸ Group {g.group_id + 1}  ·  {len(g.files)} files  ·  {kind_str}  ·  {g.similarity_score:.1f}%"
+            )
+            gh.setText(3, f"{g.similarity_score:.1f}%")
+            gh.setText(4, fmt_size(group_size))
+            for col in range(6):
+                gh.setBackground(col, QBrush(bg_color))
+            gh.setForeground(0, QBrush(QColor("#58a6ff")))
+            font = QFont(); font.setBold(True); font.setPointSize(11)
+            gh.setFont(0, font)
+            gh.setFlags(gh.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+            tree.addTopLevelItem(gh)
+
+            for idx, fe in enumerate(g.files):
+                ch = QTreeWidgetItem(gh)
+                ch.setCheckState(0, Qt.CheckState.Unchecked)
+                ch.setText(0, "    " + fe.name)
+                ch.setText(1, f"G{g.group_id + 1}")
+                ch.setText(2, kind_str)
+                ch.setText(3, f"{g.similarity_score:.1f}%")
+                ch.setText(4, fmt_size(fe.size))
+                ch.setText(5, fe.path)
+                ch.setData(0, Qt.ItemDataRole.UserRole, fe)
+
+                if idx == 0:
+                    ch.setForeground(0, QBrush(QColor("#3fb950")))
+                    ch.setToolTip(0, "Original - kept by auto-select")
+                if fe.protected:
+                    ch.setForeground(0, QBrush(QColor("#f0883e")))
+                    ch.setToolTip(0, "System / protected file - verify before deleting")
+                total_files += 1
+
+            gh.setExpanded(True)
+
+        tree.setSortingEnabled(True)
+        self._sync_tree_count(tree, self._similar_tab.count_lbl)
 
     # ── Storage tree ──────────────────────────────────────────────────────────
 
@@ -431,6 +595,40 @@ class MainWindow(QMainWindow):
             self._trash_paths(
                 [fe.path],
                 on_success=lambda: self._remove_scan_item(item),
+            )
+
+    def _ctx_similar(self, pos: QPoint) -> None:
+        tree = self._similar_tab.sim_tree
+        item = tree.itemAt(pos)
+        if not item or not item.parent():
+            return
+        fe: FileEntry = item.data(0, Qt.ItemDataRole.UserRole)
+        if not fe:
+            return
+
+        menu = QMenu(self)
+        a_open = menu.addAction("Show in File Explorer")
+        menu.addSeparator()
+        a_check = menu.addAction("Mark for deletion")
+        a_uncheck = menu.addAction("Unmark")
+        menu.addSeparator()
+        a_trash = menu.addAction("Delete this file now")
+
+        if is_protected_path(fe.path):
+            a_trash.setEnabled(False)
+            a_trash.setText("Delete (blocked - system file)")
+
+        chosen = menu.exec(tree.viewport().mapToGlobal(pos))
+        if chosen == a_open:
+            open_in_explorer(fe.path)
+        elif chosen == a_check:
+            item.setCheckState(0, Qt.CheckState.Checked)
+        elif chosen == a_uncheck:
+            item.setCheckState(0, Qt.CheckState.Unchecked)
+        elif chosen == a_trash:
+            self._trash_paths(
+                [fe.path],
+                on_success=lambda: self._remove_similar_item(item),
             )
 
     def _ctx_storage(self, pos: QPoint) -> None:
@@ -582,43 +780,23 @@ class MainWindow(QMainWindow):
 
     def _delete_checked(self) -> None:
         """Delete all checked (marked) items in the duplicate scanner tree."""
-        tree              = self._scan_tab.dup_tree
-        items_to_delete: list[tuple[str, QTreeWidgetItem]] = []
+        self._delete_checked_from_tree(
+            self._scan_tab.dup_tree,
+            self._scan_tab.count_lbl,
+            "No files are currently marked for deletion.\n\n"
+            "Tip: Check the boxes next to the files you want to remove, "
+            "or click 'Select Dupes' to auto-mark all duplicates.",
+            after_delete=lambda: QTimer.singleShot(800, self._start_scan),
+        )
 
-        for i in range(tree.topLevelItemCount()):
-            parent = tree.topLevelItem(i)
-            for j in range(parent.childCount()):
-                ch = parent.child(j)
-                if ch.checkState(0) == Qt.CheckState.Checked:
-                    fe: FileEntry = ch.data(0, Qt.ItemDataRole.UserRole)
-                    if fe:
-                        items_to_delete.append((fe.path, ch))
-
-        if not items_to_delete:
-            QMessageBox.information(
-                self, "Nothing Marked",
-                "No files are currently marked for deletion.\n\n"
-                "Tip: Check the boxes next to the files you want to remove, "
-                "or click 'Select Dupes' to auto-mark all duplicates."
-            )
-            return
-
-        paths      = [p    for p, _    in items_to_delete]
-        tree_items = [item for _, item in items_to_delete]
-
-        def _remove_from_tree():
-            for item in tree_items:
-                parent = item.parent()
-                if parent:
-                    parent.removeChild(item)
-                    if parent.childCount() == 0:
-                        idx = tree.indexOfTopLevelItem(parent)
-                        if idx >= 0:
-                            tree.takeTopLevelItem(idx)
-            self._sync_count_label()
-            QTimer.singleShot(800, self._start_scan)
-
-        self._trash_paths(paths, on_success=_remove_from_tree)
+    def _delete_checked_similar(self) -> None:
+        self._delete_checked_from_tree(
+            self._similar_tab.sim_tree,
+            self._similar_tab.count_lbl,
+            "No files are currently marked for deletion.\n\n"
+            "Tip: Check the boxes next to the files you want to remove, "
+            "or click 'Select Close Matches' to auto-mark all but the first file in each group.",
+        )
 
     # ── Tree helpers ──────────────────────────────────────────────────────────
 
@@ -630,20 +808,25 @@ class MainWindow(QMainWindow):
         parent.removeChild(item)
         if parent.childCount() == 0:
             idx = tree.indexOfTopLevelItem(parent)
-            if idx >= 0:
-                tree.takeTopLevelItem(idx)
-        self._sync_count_label()
+        if idx >= 0:
+            tree.takeTopLevelItem(idx)
+        self._sync_tree_count(tree, self._scan_tab.count_lbl)
         QTimer.singleShot(800, self._start_scan)
 
+    def _remove_similar_item(self, item: QTreeWidgetItem) -> None:
+        tree = self._similar_tab.sim_tree
+        parent = item.parent()
+        if not parent:
+            return
+        parent.removeChild(item)
+        if parent.childCount() == 0:
+            idx = tree.indexOfTopLevelItem(parent)
+            if idx >= 0:
+                tree.takeTopLevelItem(idx)
+        self._sync_tree_count(tree, self._similar_tab.count_lbl)
+
     def _sync_count_label(self) -> None:
-        tree   = self._scan_tab.dup_tree
-        groups = tree.topLevelItemCount()
-        files  = sum(tree.topLevelItem(i).childCount() for i in range(groups))
-        g_s    = "s" if groups != 1 else ""
-        f_s    = "s" if files  != 1 else ""
-        self._scan_tab.count_lbl.setText(
-            f"{groups} group{g_s} · {files} file{f_s}"
-        )
+        self._sync_tree_count(self._scan_tab.dup_tree, self._scan_tab.count_lbl)
 
     # ── Select / clear ────────────────────────────────────────────────────────
 
@@ -667,6 +850,12 @@ class MainWindow(QMainWindow):
             for j in range(parent.childCount()):
                 parent.child(j).setCheckState(0, Qt.CheckState.Unchecked)
 
+    def _select_similar_dupes(self) -> None:
+        self._select_all_but_first(self._similar_tab.sim_tree)
+
+    def _clear_similar_sel(self) -> None:
+        self._clear_tree_selection(self._similar_tab.sim_tree)
+
     # ── Stats ─────────────────────────────────────────────────────────────────
 
     def _update_stats(self, groups: list[DuplicateGroup]) -> None:
@@ -686,3 +875,68 @@ class MainWindow(QMainWindow):
         h.c_groups.set_value(str(len(groups)))
         h.c_dupes.set_value(str(dupes))
         h.c_save.set_value(fmt_size(save))
+
+    def _delete_checked_from_tree(
+        self,
+        tree: QTreeWidget,
+        label,
+        empty_message: str,
+        after_delete: Callable | None = None,
+    ) -> None:
+        items_to_delete: list[tuple[str, QTreeWidgetItem]] = []
+
+        for i in range(tree.topLevelItemCount()):
+            parent = tree.topLevelItem(i)
+            for j in range(parent.childCount()):
+                ch = parent.child(j)
+                if ch.checkState(0) == Qt.CheckState.Checked:
+                    fe: FileEntry = ch.data(0, Qt.ItemDataRole.UserRole)
+                    if fe:
+                        items_to_delete.append((fe.path, ch))
+
+        if not items_to_delete:
+            QMessageBox.information(self, "Nothing Marked", empty_message)
+            return
+
+        paths = [p for p, _ in items_to_delete]
+        tree_items = [item for _, item in items_to_delete]
+
+        def _remove_from_tree() -> None:
+            for item in tree_items:
+                parent = item.parent()
+                if parent:
+                    parent.removeChild(item)
+                    if parent.childCount() == 0:
+                        idx = tree.indexOfTopLevelItem(parent)
+                        if idx >= 0:
+                            tree.takeTopLevelItem(idx)
+            self._sync_tree_count(tree, label)
+            if after_delete:
+                after_delete()
+
+        self._trash_paths(paths, on_success=_remove_from_tree)
+
+    def _select_all_but_first(self, tree: QTreeWidget) -> None:
+        for i in range(tree.topLevelItemCount()):
+            parent = tree.topLevelItem(i)
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                state = Qt.CheckState.Unchecked if j == 0 else Qt.CheckState.Checked
+                child.setCheckState(0, state)
+
+    def _clear_tree_selection(self, tree: QTreeWidget) -> None:
+        for i in range(tree.topLevelItemCount()):
+            parent = tree.topLevelItem(i)
+            for j in range(parent.childCount()):
+                parent.child(j).setCheckState(0, Qt.CheckState.Unchecked)
+
+    def _sync_tree_count(self, tree: QTreeWidget, label) -> None:
+        groups = tree.topLevelItemCount()
+        files = sum(tree.topLevelItem(i).childCount() for i in range(groups))
+        g_s = "s" if groups != 1 else ""
+        f_s = "s" if files != 1 else ""
+        label.setText(f"{groups} group{g_s} · {files} file{f_s}")
+
+    def _any_worker_running(self) -> bool:
+        workers = [self._scan_worker, self._similar_worker, self._storage_worker]
+        return any(worker is not None and worker.isRunning() for worker in workers)
