@@ -123,6 +123,7 @@ class Sidebar(QWidget):
         lay = _vlay(grp, spacing=8)
 
         self.scan_btn = QPushButton("▶  Start Scan")
+        self.monitor_btn = QPushButton("👁  Start Monitor")
         self.scan_btn.setObjectName("primaryBtn")
         self.scan_btn.setMinimumHeight(36)
         lay.addWidget(self.scan_btn)

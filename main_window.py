@@ -34,6 +34,8 @@ from features.storage.chart   import StorageChart
 from features.ui.header       import AppHeader
 from features.ui.sidebar      import Sidebar
 from features.ui.style        import STYLE
+from features.monitor.worker import MonitorWorker
+from features.monitor.tab    import MonitorTab
 
 _STORAGE_DEPTH = 4   # fixed tree depth, no user control needed
 
@@ -57,6 +59,8 @@ class MainWindow(QMainWindow):
         self._groups:            list[DuplicateGroup]    = []
         self._selected_root      = ""
         self._storage_loaded_for = ""   # track which root is currently shown
+
+        self._monitor_worker: MonitorWorker | None = None
 
         # ── Build & style ──────────────────────────────────────────────────────
         self._build_ui()
@@ -103,9 +107,11 @@ class MainWindow(QMainWindow):
 
         root_lay.addWidget(body, stretch=1)
 
-        self._status = QStatusBar()
-        self.setStatusBar(self._status)
-        self._status.showMessage("Ready — select a folder to begin.")
+        self._tabs.addTab(self._scan_tab,    "⚡  Duplicate Scanner")
+        self._tabs.addTab(self._similar_tab,  "◈  Similar Files")
+        self._tabs.addTab(self._storage_tab, "🗂  Storage Breakdown")
+        self._monitor_tab = MonitorTab()
+        self._tabs.addTab(self._monitor_tab, "👁  Live Monitor")
 
         self._wire_signals()
 
@@ -119,6 +125,7 @@ class MainWindow(QMainWindow):
 
         sb.browse_btn.clicked.connect(self._on_browse)
         sb.scan_btn.clicked.connect(self._start_scan)
+        sb.monitor_btn.clicked.connect(self._start_monitor)
         sb.stop_btn.clicked.connect(self._abort)
         sb.sel_btn.clicked.connect(self._select_dupes)
         sb.clr_btn.clicked.connect(self._clear_sel)
@@ -135,6 +142,7 @@ class MainWindow(QMainWindow):
 
         # Auto-load storage when the tab is activated
         self._tabs.currentChanged.connect(self._on_tab_changed)
+        self._monitor_tab.btn_stop.clicked.connect(self._stop_monitor)
 
         # Chart segment click → scroll + highlight tree row
         stt.chart.segment_clicked.connect(self._on_chart_segment_clicked)
@@ -937,6 +945,52 @@ class MainWindow(QMainWindow):
         g_s = "s" if groups != 1 else ""
         f_s = "s" if files != 1 else ""
         label.setText(f"{groups} group{g_s} · {files} file{f_s}")
+
+    def _start_monitor(self) -> None:
+        if not self._selected_root:
+            QMessageBox.warning(self, "No Folder Selected",
+                "Please click 'Browse Folder' to choose a folder first.")
+            return
+        if self._monitor_worker and self._monitor_worker.isRunning():
+            QMessageBox.information(self, "Already Running",
+                "Monitor is already active. Stop it first.")
+            return
+        if is_protected_path(self._selected_root):
+            QMessageBox.critical(self, "This Folder is Protected",
+                "You've selected a system folder — monitoring it is not allowed.")
+            return
+
+        min_size = self._sidebar.min_spin.value() * 1024
+
+        self._monitor_worker = MonitorWorker(
+            folder=self._selected_root,
+            min_size=min_size,
+        )
+        self._monitor_worker.event_detected.connect(self._on_monitor_event)
+        self._monitor_worker.duplicates_found.connect(self._on_monitor_dupes)
+        self._monitor_worker.index_updated.connect(
+            lambda n: self._monitor_tab.set_indexed_count(n)
+        )
+        self._monitor_worker.error_occurred.connect(
+            lambda e: self._monitor_tab.set_status(f"Error: {e}")
+        )
+        self._monitor_worker.start()
+        self._monitor_tab.set_monitor_running(True)
+        self._tabs.setCurrentWidget(self._monitor_tab)
+        self._status.showMessage("Live monitoring started…")
+
+    def _stop_monitor(self) -> None:
+        if self._monitor_worker:
+            self._monitor_worker.stop()
+            self._monitor_worker = None
+        self._monitor_tab.set_monitor_running(False)
+        self._status.showMessage("Monitor stopped.")
+
+    def _on_monitor_event(self, event_type: str, path: str) -> None:
+        self._monitor_tab.add_event(event_type, path)
+
+    def _on_monitor_dupes(self, groups: list) -> None:
+        self._monitor_tab.show_duplicates(groups)
 
     def _any_worker_running(self) -> bool:
         workers = [self._scan_worker, self._similar_worker, self._storage_worker]
