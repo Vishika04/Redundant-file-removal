@@ -123,10 +123,14 @@ class Sidebar(QWidget):
         lay = _vlay(grp, spacing=8)
 
         self.scan_btn = QPushButton("▶  Start Scan")
-        self.monitor_btn = QPushButton("👁  Start Monitor")
         self.scan_btn.setObjectName("primaryBtn")
         self.scan_btn.setMinimumHeight(36)
         lay.addWidget(self.scan_btn)
+        
+        self.monitor_btn = QPushButton("👁  Start Monitor")
+        self.monitor_btn.setObjectName("primaryBtn")
+        self.monitor_btn.setMinimumHeight(36)
+        lay.addWidget(self.monitor_btn)
 
         self.stop_btn = QPushButton("■  Stop")
         self.stop_btn.setEnabled(False)
