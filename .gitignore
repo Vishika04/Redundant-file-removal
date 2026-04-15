@@ -3,3 +3,4 @@ __pycache__/*
 *.pyo
 venv/
 crash.log
+__pycache__
