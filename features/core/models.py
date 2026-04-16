@@ -16,6 +16,10 @@ class FileEntry:
     hash_sha256: str  = ""
     group_id:   int  = -1
     protected:  bool = False
+    source:     str = "local"
+    cloud_id:   str = ""
+    hash_md5:   str | None = None
+    confidence: str = "LOW"
 
 
 @dataclass

@@ -26,12 +26,14 @@ from features.core.utils     import (
 )
 from features.scanner.worker  import ScanWorker
 from features.scanner.tab     import ScanTab
+from features.scanner.cloud_worker import CloudWorker
 from features.storage.worker  import StorageWorker
 from features.storage.tab     import StorageTab
 from features.storage.chart   import StorageChart
 from features.ui.header       import AppHeader
 from features.ui.sidebar      import Sidebar
 from features.ui.style        import STYLE
+
 
 _STORAGE_DEPTH = 4   # fixed tree depth, no user control needed
 
@@ -113,6 +115,7 @@ class MainWindow(QMainWindow):
 
         sb.browse_btn.clicked.connect(self._on_browse)
         sb.scan_btn.clicked.connect(self._start_scan)
+        sb.cloud_btn.clicked.connect(self._start_cloud_scan)
         sb.stop_btn.clicked.connect(self._abort)
         sb.sel_btn.clicked.connect(self._select_dupes)
         sb.clr_btn.clicked.connect(self._clear_sel)
@@ -211,6 +214,35 @@ class MainWindow(QMainWindow):
         self._tabs.setCurrentIndex(0)
         self._status.showMessage("Scanning…")
 
+    def _start_cloud_scan(self) -> None:
+        """Start scanning cloud files only"""
+
+        # Clear old results
+        self._scan_tab.dup_tree.clear()
+        self._groups = []
+
+        # Reset UI
+        self._sidebar.prog.setValue(0)
+        self._sidebar.set_scan_running(True)
+        self._sidebar.reset_stats()
+        self._header.reset_chips()
+
+        # Create Cloud Worker
+        from features.scanner.cloud_worker import CloudWorker
+        self._scan_worker = CloudWorker()
+
+        # Connect signals
+        self._scan_worker.progress.connect(self._on_progress)
+        self._scan_worker.finished.connect(self._on_scan_done)
+        self._scan_worker.error.connect(self._on_error)
+
+        # Start worker
+        self._scan_worker.start()
+
+        # Switch to scan tab
+        self._tabs.setCurrentIndex(0)
+        self._status.showMessage("Scanning cloud…")
+
     def _abort(self) -> None:
         if self._scan_worker:
             self._scan_worker.abort()
@@ -282,7 +314,8 @@ class MainWindow(QMainWindow):
                 ch.setCheckState(0, Qt.CheckState.Unchecked)
                 ch.setText(0, "    " + fe.name)
                 ch.setText(1, f"G{g.group_id + 1}")
-                ch.setText(2, match_str)
+                label = f"{match_str} ({fe.confidence})"
+                ch.setText(2, label)
                 ch.setText(3, fmt_size(fe.size))
                 ch.setText(4, fe.path)
                 ch.setText(5, (fe.hash_sha256[:22] + "…") if fe.hash_sha256 else "—")

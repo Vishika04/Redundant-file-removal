@@ -126,6 +126,10 @@ class Sidebar(QWidget):
         self.scan_btn.setObjectName("primaryBtn")
         self.scan_btn.setMinimumHeight(36)
         lay.addWidget(self.scan_btn)
+        
+        self.cloud_btn = QPushButton("☁  Scan Cloud")
+        self.cloud_btn.setMinimumHeight(36)
+        lay.addWidget(self.cloud_btn)
 
         self.stop_btn = QPushButton("■  Stop")
         self.stop_btn.setEnabled(False)
