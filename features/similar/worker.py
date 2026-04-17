@@ -157,12 +157,14 @@ class SimilarityWorker(QThread):
     def _fingerprint_file(self, path: Path) -> _Fingerprint | None:
         suffix = path.suffix.lower()
         try:
+            from features.core.utils import get_media_kind
             entry = FileEntry(
                 path=str(path),
                 size=path.stat().st_size,
                 name=path.name,
                 extension=suffix,
                 protected=False,
+                media_kind=get_media_kind(str(path))
             )
         except (OSError, PermissionError):
             return None

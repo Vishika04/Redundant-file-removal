@@ -1,10 +1,10 @@
 """
 features/ui/header.py
 Branded application header bar with live stat chips.
-Redesigned for better visibility and layman-friendliness.
+Redesigned for a high-end, production-ready aesthetic.
 """
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame
 from PyQt6.QtCore    import Qt
 
 
@@ -15,8 +15,8 @@ class _Chip(QWidget):
         super().__init__()
         self.setObjectName("chip")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(14, 6, 14, 6)
-        lay.setSpacing(2)
+        lay.setContentsMargins(12, 6, 12, 6)
+        lay.setSpacing(1)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._val = QLabel(initial)
@@ -42,42 +42,50 @@ class AppHeader(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("header")
-        self.setFixedHeight(72)
+        self.setFixedHeight(80)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(28, 0, 28, 0)
+        lay.setContentsMargins(20, 0, 20, 0)
         lay.setSpacing(0)
 
-        # Brand dot
-        dot = QLabel("◈")
-        dot.setStyleSheet("color:#1f6feb; font-size:28px;")
-        lay.addWidget(dot)
-        lay.addSpacing(14)
-
-        # Title + tagline stacked
+        # Brand Section
+        brand = QWidget()
+        b_lay = QHBoxLayout(brand)
+        b_lay.setContentsMargins(0, 0, 0, 0)
+        
+        logo = QLabel("◈")
+        logo.setStyleSheet("color:#58a6ff; font-size:32px; font-weight:800;")
+        b_lay.addWidget(logo)
+        
         title_block = QVBoxLayout()
-        title_block.setSpacing(1)
-        title_block.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-
-        title = QLabel("REDUNDANT FILE REMOVER")
+        title_block.setSpacing(0)
+        title_block.setContentsMargins(10, 0, 0, 0)
+        
+        title = QLabel("REDUCLEAR")
         title.setObjectName("titleLabel")
         title_block.addWidget(title)
-
-        sub = QLabel("SCAN  ·  DETECT  ·  REMOVE SAFELY")
+        
+        sub = QLabel("INTELLIGENT FILE MANAGEMENT")
         sub.setObjectName("subLabel")
         title_block.addWidget(sub)
-
-        lay.addLayout(title_block)
+        b_lay.addLayout(title_block)
+        
+        lay.addWidget(brand)
         lay.addStretch()
 
-        # Stat chips — with friendlier labels
-        self.c_groups = _Chip("Duplicate Groups")
-        self.c_dupes  = _Chip("Extra Copies Found")
-        self.c_save   = _Chip("Space You Can Free")
+        # Stat chips
+        chips_container = QWidget()
+        c_lay = QHBoxLayout(chips_container)
+        c_lay.setSpacing(12)
+        
+        self.c_groups = _Chip("Groups Found")
+        self.c_dupes  = _Chip("Copies Found")
+        self.c_save   = _Chip("Potential Saving")
 
         for chip in (self.c_groups, self.c_dupes, self.c_save):
-            lay.addWidget(chip)
-            lay.addSpacing(10)
+            c_lay.addWidget(chip)
+            
+        lay.addWidget(chips_container)
 
     def reset_chips(self) -> None:
         for chip in (self.c_groups, self.c_dupes, self.c_save):

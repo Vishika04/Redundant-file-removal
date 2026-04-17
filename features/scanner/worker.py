@@ -24,7 +24,7 @@ class ScanWorker(QThread):
     """
 
     progress = pyqtSignal(int, str)
-    finished = pyqtSignal(list)
+    finished = pyqtSignal(list, list)
     error    = pyqtSignal(str)
 
     def __init__(
@@ -94,7 +94,7 @@ class ScanWorker(QThread):
                     pass
 
         if not all_files:
-            self.finished.emit([])
+            self.finished.emit([], [])
             return
 
         # ── 2. Build FileEntry list ───────────────────────────────────────────
@@ -106,12 +106,14 @@ class ScanWorker(QThread):
             if self._abort:
                 return
             try:
+                from features.core.utils import get_media_kind
                 entries.append(FileEntry(
                     path=str(fp),
                     size=fp.stat().st_size,
                     name=fp.name,
                     extension=fp.suffix.lower(),
                     protected=is_protected_file(str(fp)),
+                    media_kind=get_media_kind(str(fp))
                 ))
             except (OSError, PermissionError):
                 pass
@@ -129,13 +131,19 @@ class ScanWorker(QThread):
                 done = 0
                 with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
                     future_map = {pool.submit(sha256, e.path): e for e in to_hash}
+                    last_pct = -1
                     for fut in concurrent.futures.as_completed(future_map):
                         if self._abort:
                             return
                         entry = future_map[fut]
                         done += 1
                         pct = 5 + int(done / hash_total * 70)
-                        self.progress.emit(pct, f"Hashing: {entry.name}")
+                        
+                        # Throttle UI updates to avoid clogging the main thread
+                        if pct != last_pct or done % 50 == 0:
+                            self.progress.emit(pct, f"Hashing: {entry.name} ({done}/{hash_total})")
+                            last_pct = pct
+                            
                         entry.hash_sha256 = fut.result()
 
         # ── 4. Build duplicate groups ─────────────────────────────────────────
@@ -171,4 +179,4 @@ class ScanWorker(QThread):
                         gid += 1
 
         self.progress.emit(100, f"Done — {len(groups)} group(s)")
-        self.finished.emit(groups)
+        self.finished.emit(groups, entries)

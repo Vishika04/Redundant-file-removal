@@ -1,11 +1,12 @@
 """
 features/similar/tab.py
-The "Similar Files" tab widget - controls + results for perceptual media matching.
+The "Similar Files" tab widget.
+Redesigned for a professional, production-ready aesthetic.
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget, QHeaderView,
-    QAbstractItemView, QPushButton, QSlider,
+    QAbstractItemView, QPushButton, QSlider, QFrame
 )
 from PyQt6.QtCore import Qt
 
@@ -18,96 +19,98 @@ class SimilarTab(QWidget):
         self._build()
 
     def _build(self) -> None:
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 12, 16, 12)
-        lay.setSpacing(10)
+        self.main_lay = QVBoxLayout(self)
+        self.main_lay.setContentsMargins(0, 0, 0, 0)
+        self.main_lay.setSpacing(0)
 
-        heading_row = QHBoxLayout()
-        heading = QLabel("SIMILAR FILES")
+        # ── Header ────────────────────────────────────────────────────────────
+        self.header_frame = QFrame()
+        self.header_frame.setFixedHeight(50)
+        self.header_frame.setStyleSheet("background: transparent; border-bottom: 1px solid #21262d;")
+        h_lay = QHBoxLayout(self.header_frame)
+        h_lay.setContentsMargins(16, 0, 16, 0)
+
+        heading = QLabel("SIMILAR MEDIA DETECTOR")
         heading.setObjectName("sectionLabel")
-        heading_row.addWidget(heading)
-        heading_row.addStretch()
+        h_lay.addWidget(heading)
+        h_lay.addStretch()
 
         self.count_lbl = QLabel("")
-        self.count_lbl.setStyleSheet("color:#484f58; font-size:11px;")
-        heading_row.addWidget(self.count_lbl)
-        lay.addLayout(heading_row)
+        self.count_lbl.setStyleSheet("color:#8b949e; font-size:11px; font-weight: 600;")
+        h_lay.addWidget(self.count_lbl)
+        self.main_lay.addWidget(self.header_frame)
 
+        # ── Content ───────────────────────────────────────────────────────────
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setContentsMargins(16, 12, 16, 16)
+        lay.setSpacing(12)
+        
+        # Info
         info = QLabel(
-            "Perceptual image hashing (pHash + dHash) and audio fingerprints "
-            "are compared against the selected similarity threshold."
+            "Detect perceptually similar images and audio using advanced fingerprinting "
+            "comparisons. Adjust the threshold for stricter or looser matching."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color:#8b949e; font-size:11px; padding:4px 2px;")
+        info.setStyleSheet("color:#8b949e; font-size:12px;")
         lay.addWidget(info)
 
-        self._build_threshold_row(lay)
-        self._build_buttons_row(lay)
-        self._build_tree(lay)
+        # Controls Group
+        ctrl = QFrame()
+        ctrl.setStyleSheet("background: #161b22; border: 1px solid #30363d; border-radius: 8px;")
+        ctrl_lay = QVBoxLayout(ctrl)
+        ctrl_lay.setContentsMargins(12, 12, 12, 12)
+        ctrl_lay.setSpacing(10)
 
-    def _build_threshold_row(self, lay: QVBoxLayout) -> None:
-        cap = QLabel("Similarity Threshold")
-        cap.setStyleSheet("color:#6e7681; font-size:11px; margin-top:2px;")
-        lay.addWidget(cap)
-
-        row = QHBoxLayout()
-        row.setSpacing(10)
+        # Threshold
+        t_lay = QHBoxLayout()
+        cap = QLabel("Matching Sensitivity")
+        cap.setStyleSheet("color:#c9d1d9; font-size:11px; font-weight:700;")
+        t_lay.addWidget(cap)
+        t_lay.addStretch()
+        self.threshold_value_lbl = QLabel("90%")
+        self.threshold_value_lbl.setStyleSheet("color:#58a6ff; font-weight:700;")
+        t_lay.addWidget(self.threshold_value_lbl)
+        ctrl_lay.addLayout(t_lay)
 
         self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.threshold_slider.setRange(70, 100)
         self.threshold_slider.setValue(90)
-        self.threshold_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.threshold_slider.setTickInterval(5)
-        row.addWidget(self.threshold_slider, stretch=1)
+        ctrl_lay.addWidget(self.threshold_slider)
 
-        self.threshold_value_lbl = QLabel("90%")
-        self.threshold_value_lbl.setMinimumWidth(44)
-        self.threshold_value_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.threshold_value_lbl.setStyleSheet("color:#58a6ff; font-weight:700;")
-        row.addWidget(self.threshold_value_lbl)
-
-        lay.addLayout(row)
-
-        self.threshold_hint = QLabel("Higher values mean stricter matching.")
-        self.threshold_hint.setStyleSheet("color:#484f58; font-size:10px;")
-        lay.addWidget(self.threshold_hint)
-
-    def _build_buttons_row(self, lay: QVBoxLayout) -> None:
-        row = QHBoxLayout()
-        row.setSpacing(6)
-
-        self.scan_btn = QPushButton("Start Similarity Scan")
+        # Buttons
+        btn_lay = QHBoxLayout()
+        self.scan_btn = QPushButton("Start Analysis")
         self.scan_btn.setObjectName("primaryBtn")
-        self.scan_btn.setMinimumHeight(34)
-        row.addWidget(self.scan_btn)
-
+        self.scan_btn.setFixedHeight(34)
+        
         self.stop_btn = QPushButton("Stop")
         self.stop_btn.setEnabled(False)
-        self.stop_btn.setMinimumHeight(34)
-        row.addWidget(self.stop_btn)
-        lay.addLayout(row)
+        self.stop_btn.setFixedHeight(34)
+        
+        btn_lay.addWidget(self.scan_btn, stretch=1)
+        btn_lay.addWidget(self.stop_btn)
+        ctrl_lay.addLayout(btn_lay)
+        
+        lay.addWidget(ctrl)
 
-        row2 = QHBoxLayout()
-        row2.setSpacing(6)
-
-        self.select_btn = QPushButton("Select Close Matches")
+        # Action Row
+        act_lay = QHBoxLayout()
+        self.select_btn = QPushButton("Select Matches")
         self.select_btn.setEnabled(False)
-        self.select_btn.setMinimumHeight(32)
-        row2.addWidget(self.select_btn)
-
-        self.clear_btn = QPushButton("Clear All")
+        self.clear_btn = QPushButton("Clear")
         self.clear_btn.setEnabled(False)
-        self.clear_btn.setMinimumHeight(32)
-        row2.addWidget(self.clear_btn)
-        lay.addLayout(row2)
-
-        self.del_btn = QPushButton("Move Checked to Recycle Bin")
+        self.del_btn = QPushButton("🗑 Delete Selected")
         self.del_btn.setObjectName("dangerBtn")
         self.del_btn.setEnabled(False)
-        self.del_btn.setMinimumHeight(36)
-        lay.addWidget(self.del_btn)
+        
+        act_lay.addWidget(self.select_btn)
+        act_lay.addWidget(self.clear_btn)
+        act_lay.addStretch()
+        act_lay.addWidget(self.del_btn)
+        lay.addLayout(act_lay)
 
-    def _build_tree(self, lay: QVBoxLayout) -> None:
+        # Result Tree
         self.sim_tree = QTreeWidget()
         self.sim_tree.setColumnCount(6)
         self.sim_tree.setHeaderLabels(
@@ -130,9 +133,10 @@ class SimilarTab(QWidget):
         self.sim_tree.setColumnWidth(1, 48)
         self.sim_tree.setColumnWidth(2, 72)
         self.sim_tree.setColumnWidth(3, 96)
-        self.sim_tree.setColumnWidth(4, 92)
-
+        self.sim_tree.setColumnWidth(4, 95)
+        
         lay.addWidget(self.sim_tree, stretch=1)
+        self.main_lay.addWidget(content)
 
     def set_scan_running(self, running: bool) -> None:
         self.scan_btn.setEnabled(not running)
@@ -146,4 +150,3 @@ class SimilarTab(QWidget):
         self.del_btn.setEnabled(available)
         self.select_btn.setEnabled(available)
         self.clear_btn.setEnabled(available)
-

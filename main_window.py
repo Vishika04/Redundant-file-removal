@@ -36,6 +36,7 @@ from features.ui.sidebar      import Sidebar
 from features.ui.style        import STYLE
 from features.monitor.worker import MonitorWorker
 from features.monitor.tab    import MonitorTab
+from features.graph.tab      import GraphTab
 
 _STORAGE_DEPTH = 4   # fixed tree depth, no user control needed
 
@@ -57,6 +58,7 @@ class MainWindow(QMainWindow):
         self._similar_worker:     Optional[SimilarityWorker] = None
         self._storage_worker:    Optional[StorageWorker] = None
         self._groups:            list[DuplicateGroup]    = []
+        self._all_indexed_files:  list = []
         self._selected_root      = ""
         self._storage_loaded_for = ""   # track which root is currently shown
 
@@ -100,20 +102,20 @@ class MainWindow(QMainWindow):
         self._scan_tab    = ScanTab()
         self._similar_tab = SimilarTab()
         self._storage_tab = StorageTab()
+        self._monitor_tab = MonitorTab()
+        self._graph_tab   = GraphTab()
+        
         self._tabs.addTab(self._scan_tab,    "⚡  Duplicate Scanner")
         self._tabs.addTab(self._similar_tab,  "◈  Similar Files")
         self._tabs.addTab(self._storage_tab, "🗂  Storage Breakdown")
+        self._tabs.addTab(self._monitor_tab, "👁  Live Monitor")
+        self._tabs.addTab(self._graph_tab,   "🕸  Knowledge Graph")
+        
         body_lay.addWidget(self._tabs, stretch=1)
-
         root_lay.addWidget(body, stretch=1)
 
-        self._tabs.addTab(self._scan_tab,    "⚡  Duplicate Scanner")
-        self._tabs.addTab(self._similar_tab,  "◈  Similar Files")
-        self._tabs.addTab(self._storage_tab, "🗂  Storage Breakdown")
-        self._monitor_tab = MonitorTab()
-        self._tabs.addTab(self._monitor_tab, "👁  Live Monitor")
-
         self._wire_signals()
+        self._status = self.statusBar()
 
     # ── Signal wiring ─────────────────────────────────────────────────────────
 
@@ -137,6 +139,8 @@ class MainWindow(QMainWindow):
         sim.stop_btn.clicked.connect(self._abort)
         sim.select_btn.clicked.connect(self._select_similar_dupes)
         sim.clear_btn.clicked.connect(self._clear_similar_sel)
+        self._graph_tab.btn_refresh.clicked.connect(self._refresh_graph)
+        self._graph_tab.files_deleted.connect(self._refresh_graph)
         sim.del_btn.clicked.connect(self._delete_checked_similar)
         sim.sim_tree.customContextMenuRequested.connect(self._ctx_similar)
 
@@ -151,10 +155,13 @@ class MainWindow(QMainWindow):
     # ── Tab switch ────────────────────────────────────────────────────────────
 
     def _on_tab_changed(self, index: int) -> None:
-        """Auto-load storage tree when the storage tab becomes active."""
-        if self._tabs.widget(index) is self._storage_tab and self._selected_root:
+        """Auto-load storage or graph data when tabs become active."""
+        widget = self._tabs.widget(index)
+        if widget is self._storage_tab and self._selected_root:
             if self._selected_root != self._storage_loaded_for:
                 self._load_storage_tree()
+        elif widget is self._graph_tab:
+            self._refresh_graph()
 
     def _on_chart_segment_clicked(self, path: str) -> None:
         """Scroll the detail tree to the folder matching *path*."""
@@ -167,6 +174,15 @@ class MainWindow(QMainWindow):
                 tree.setCurrentItem(top)
                 break
 
+    def _refresh_graph(self) -> None:
+        """Update Knowledge Graph with newest scan results."""
+        self._graph_tab.set_data(
+            duplicate_groups=self._groups,
+            similar_groups=getattr(self, "_similar_groups", []),
+            all_indexed=self._all_indexed_files
+        )
+        self._status.showMessage("Knowledge Graph synchronized.")
+
     # ── Browse ────────────────────────────────────────────────────────────────
 
     def _on_browse(self) -> None:
@@ -176,9 +192,10 @@ class MainWindow(QMainWindow):
         self._selected_root  = d
         self._storage_loaded_for = ""      # force storage refresh
 
-        # Clear stale storage view immediately
+        # Clear stale views
         self._scan_tab.dup_tree.clear()
         self._scan_tab.count_lbl.setText("")
+        self._scan_tab.show_results(False)
         self._storage_tab.chart.clear()
         self._storage_tab.stor_tree.clear()
         self._sidebar.set_results_available(False)
@@ -227,6 +244,7 @@ class MainWindow(QMainWindow):
 
         self._scan_tab.dup_tree.clear()
         self._groups = []
+        self._all_indexed_files = [] # Clear stale indexed data
         self._sidebar.prog.setValue(0)
         self._sidebar.set_scan_running(True)
         self._sidebar.reset_stats()
@@ -236,7 +254,7 @@ class MainWindow(QMainWindow):
         self._scan_worker = ScanWorker(
             root=self._selected_root,
             match_mode=sb.match_mode(),
-            min_size=sb.min_spin.value() * 1024,
+            min_size=0,
             ext_filter=sb.ext_input.text(),
             workers=optimal_workers(),
         )
@@ -270,10 +288,16 @@ class MainWindow(QMainWindow):
 
     # ── Scan done ─────────────────────────────────────────────────────────────
 
-    def _on_scan_done(self, groups: list) -> None:
+    def _on_scan_done(self, groups: list, all_entries: list) -> None:
         self._scan_worker = None
         self._groups = groups
+        self._all_indexed_files = all_entries
         self._sidebar.set_scan_running(False)
+        self._refresh_graph()
+
+        self._scan_tab.show_results(True)
+        self._populate_dup_tree(groups)
+        self._update_stats(groups, all_entries)
 
         if not groups:
             self._status.showMessage("No duplicates found.")
@@ -283,9 +307,6 @@ class MainWindow(QMainWindow):
                 "This folder has no duplicate files.\nYour storage looks clean!"
             )
             return
-
-        self._populate_dup_tree(groups)
-        self._update_stats(groups)
 
         if self._sidebar.auto_cb.isChecked():
             self._select_dupes()
@@ -350,6 +371,7 @@ class MainWindow(QMainWindow):
 
     def _on_similarity_done(self, groups: list) -> None:
         self._similar_worker = None
+        self._similar_groups = groups
         self._similar_tab.set_scan_running(False)
 
         if not groups:
@@ -365,6 +387,7 @@ class MainWindow(QMainWindow):
         self._populate_similarity_tree(groups)
         self._similar_tab.set_results_available(True)
         self._status.showMessage(f"Done - {len(groups)} similar group(s) found.")
+        self._refresh_graph()
 
     def _on_similarity_error(self, msg: str) -> None:
         self._similar_worker = None
@@ -817,8 +840,8 @@ class MainWindow(QMainWindow):
         parent.removeChild(item)
         if parent.childCount() == 0:
             idx = tree.indexOfTopLevelItem(parent)
-        if idx >= 0:
-            tree.takeTopLevelItem(idx)
+            if idx >= 0:
+                tree.takeTopLevelItem(idx)
         self._sync_tree_count(tree, self._scan_tab.count_lbl)
         QTimer.singleShot(800, self._start_scan)
 
@@ -867,18 +890,19 @@ class MainWindow(QMainWindow):
 
     # ── Stats ─────────────────────────────────────────────────────────────────
 
-    def _update_stats(self, groups: list[DuplicateGroup]) -> None:
+    def _update_stats(self, groups: list[DuplicateGroup], all_entries: list) -> None:
         dupes = sum(len(g.files) - 1 for g in groups)
-        total = sum(len(g.files)     for g in groups)
+        total_in_groups = sum(len(g.files)     for g in groups)
         save  = sum(sum(f.size for f in g.files[1:]) for g in groups)
         prot  = sum(1 for g in groups for f in g.files if f.protected)
+        total_overall = len(all_entries)
 
         sb = self._sidebar
-        sb.s_groups.setText( f"Groups:              {len(groups)}")
-        sb.s_dupes.setText(  f"Duplicates:          {dupes}")
-        sb.s_save.setText(   f"Reclaimable:         {fmt_size(save)}")
-        sb.s_scanned.setText(f"Files in groups:     {total}")
-        sb.s_prot.setText(   f"Protected (locked):  {prot}")
+        sb.s_groups.setText( f"Groups Found:       {len(groups)}")
+        sb.s_dupes.setText(  f"Duplicate Items:    {dupes}")
+        sb.s_save.setText(   f"Reclaimable:        {fmt_size(save)}")
+        sb.s_scanned.setText(f"Total Scanned:      {total_overall}")
+        sb.s_prot.setText(   f"System/Protected:   {prot}")
 
         h = self._header
         h.c_groups.set_value(str(len(groups)))
