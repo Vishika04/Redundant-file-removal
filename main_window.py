@@ -37,6 +37,7 @@ from features.ui.style        import STYLE
 from features.monitor.worker import MonitorWorker
 from features.monitor.tab    import MonitorTab
 from features.graph.tab      import GraphTab
+ cloud-scan-feature
 from features.cloud.auth     import get_drive_service
 from features.cloud.download_manager import download_and_hash
 
@@ -44,6 +45,8 @@ from features.cloud.google_drive_worker import GoogleDriveWorker
 from PyQt6.QtCore import QThread
 from collections import defaultdict
 from features.cloud.delete_manager import delete_file_from_drive
+
+ main
 
 _STORAGE_DEPTH = 4   # fixed tree depth, no user control needed
 
@@ -59,9 +62,11 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1150, 720)
         self.resize(1400, 880)
         self._load_icon()
+cloud-scan-feature
         #---cloud---------
         self.drive_service = None
         self.cloud_files = []
+ main
 
         # ── State ─────────────────────────────────────────────────────────────
         self._scan_worker:       Optional[ScanWorker]    = None
@@ -137,7 +142,10 @@ class MainWindow(QMainWindow):
 
         sb.browse_btn.clicked.connect(self._on_browse)
         sb.scan_btn.clicked.connect(self._start_scan)
+cloud-scan-feature
         sb.cloud_btn.clicked.connect(self._start_cloud_scan)
+
+main
         sb.monitor_btn.clicked.connect(self._start_monitor)
         sb.stop_btn.clicked.connect(self._abort)
         sb.sel_btn.clicked.connect(self._select_dupes)
@@ -234,6 +242,7 @@ class MainWindow(QMainWindow):
     # ── Scan ──────────────────────────────────────────────────────────────────
 
     def _start_scan(self) -> None:
+cloud-scan-feature
         if not self._selected_root and not self.cloud_files:
             QMessageBox.warning(self, "No Folder Selected",
                 "Please click 'Browse Folder' to choose a folder first.")
@@ -334,6 +343,12 @@ class MainWindow(QMainWindow):
 
             return
         
+
+        if not self._selected_root:
+            QMessageBox.warning(self, "No Folder Selected",
+                "Please click 'Browse Folder' to choose a folder first.")
+            return
+main
         if self._any_worker_running():
             QMessageBox.information(
                 self,
@@ -392,6 +407,7 @@ class MainWindow(QMainWindow):
     def _on_progress(self, pct: int, msg: str) -> None:
         self._sidebar.prog.setValue(pct)
         self._status.showMessage(msg if len(msg) <= 90 else "…" + msg[-88:])
+ cloud-scan-feature
         
     def _on_cloud_progress(self, pct: int):
         # Cloud phase → 0–50
@@ -399,12 +415,14 @@ class MainWindow(QMainWindow):
         self._sidebar.prog.setValue(scaled)
 
         self._status.showMessage(f"☁ Fetching cloud files... {pct}%")
+ main
 
     # ── Scan done ─────────────────────────────────────────────────────────────
 
     def _on_scan_done(self, groups: list, all_entries: list) -> None:
         self._scan_worker = None
         self._groups = groups
+cloud-scan-feature
         
         if self.cloud_files:
             print("Hashing cloud files...")
@@ -441,6 +459,8 @@ class MainWindow(QMainWindow):
             groups = new_groups
             self._groups = groups
         
+
+main
         self._all_indexed_files = all_entries
         self._sidebar.set_scan_running(False)
         self._refresh_graph()
@@ -463,6 +483,7 @@ class MainWindow(QMainWindow):
 
         self._sidebar.set_results_available(True)
         self._status.showMessage(f"Done — {len(groups)} duplicate group(s) found.")
+ cloud-scan-feature
         
     def _merge_cloud_files(self):
         # Flatten existing files
@@ -482,6 +503,8 @@ class MainWindow(QMainWindow):
         print("---- DEBUG FILES ----")
         for f in self._all_indexed_files[:5]:
             print(f.name, f.source)
+
+ main
 
     def _on_error(self, msg: str) -> None:
         self._sidebar.set_scan_running(False)
@@ -784,7 +807,11 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         a_trash   = menu.addAction("🗑  Delete this file now")
 
+cloud-scan-feature
         if fe.source != "cloud" and is_protected_path(fe.path):
+
+        if is_protected_path(fe.path):
+ main
             a_trash.setEnabled(False)
             a_trash.setText("🔒  Delete  (blocked — system file)")
 
@@ -794,7 +821,11 @@ class MainWindow(QMainWindow):
         elif chosen == a_uncheck: item.setCheckState(0, Qt.CheckState.Unchecked)
         elif chosen == a_trash:
             self._trash_paths(
+cloud-scan-feature
                 [fe],
+
+                [fe.path],
+ main
                 on_success=lambda: self._remove_scan_item(item),
             )
 
@@ -828,7 +859,11 @@ class MainWindow(QMainWindow):
             item.setCheckState(0, Qt.CheckState.Unchecked)
         elif chosen == a_trash:
             self._trash_paths(
+cloud-scan-feature
                 [fe],
+
+                [fe.path],
+main
                 on_success=lambda: self._remove_similar_item(item),
             )
 
@@ -884,7 +919,11 @@ class MainWindow(QMainWindow):
 
     def _trash_paths(
         self,
+cloud-scan-feature
         items:      list,
+
+        paths:      list[str],
+ main
         on_success: Callable | None = None,
     ) -> None:
         """
@@ -894,6 +933,7 @@ class MainWindow(QMainWindow):
         Layer 2 — files with executable extensions in USER paths: warn + ask.
         Layer 3 — main confirmation for everything else.
         """
+cloud-scan-feature
         local_paths = []
         cloud_files = []
 
@@ -920,6 +960,16 @@ class MainWindow(QMainWindow):
                 actionable.append(p)
 
         if not actionable and not cloud_files:
+
+        if not paths:
+            return
+
+        # ── Hard block: system-folder files ───────────────────────────────────
+        sys_blocked = [p for p in paths if is_protected_path(p)]
+        actionable  = [p for p in paths if not is_protected_path(p)]
+
+        if not actionable:
+main
             QMessageBox.warning(
                 self, "Nothing to Delete",
                 "The selected items are in Windows system folders and cannot be removed.\n"
@@ -953,6 +1003,7 @@ class MainWindow(QMainWindow):
                     return
 
         # ── Main confirmation ─────────────────────────────────────────────────
+ cloud-scan-feature
         total_items = len(safe) + len(cloud_files)
 
         if total_items == 1:
@@ -968,6 +1019,16 @@ class MainWindow(QMainWindow):
         if cloud_files:
             msg += f"\n\n☁ {len(cloud_files)} cloud file(s) will be moved to Google Drive Trash."
             
+
+        if len(safe) == 1:
+            fname = Path(safe[0]).name
+            msg   = f'Move "{fname}" to the Recycle Bin?\n\nYou can restore it later if needed.'
+        else:
+            msg   = (
+                f"Move {len(safe)} file(s) to the Recycle Bin?\n\n"
+                "You can restore them later if needed."
+            )
+main
         if sys_blocked:
             msg += f"\n\n⚠  {len(sys_blocked)} system file(s) were automatically skipped."
 
@@ -1003,6 +1064,7 @@ class MainWindow(QMainWindow):
             self._status.showMessage(f"✓ {ok} file(s) moved to Recycle Bin.{suffix}")
             if on_success:
                 on_success()
+ cloud-scan-feature
         
         cloud_deleted = []
         cloud_errors = []
@@ -1027,6 +1089,8 @@ class MainWindow(QMainWindow):
 
         self._status.showMessage(msg)
 
+ main
+
     def _delete_checked(self) -> None:
         """Delete all checked (marked) items in the duplicate scanner tree."""
         self._delete_checked_from_tree(
@@ -1035,7 +1099,11 @@ class MainWindow(QMainWindow):
             "No files are currently marked for deletion.\n\n"
             "Tip: Check the boxes next to the files you want to remove, "
             "or click 'Select Dupes' to auto-mark all duplicates.",
+ cloud-scan-feature
             after_delete=None,
+
+            after_delete=lambda: QTimer.singleShot(800, self._start_scan),
+ main
         )
 
     def _delete_checked_similar(self) -> None:
@@ -1142,13 +1210,21 @@ class MainWindow(QMainWindow):
                 if ch.checkState(0) == Qt.CheckState.Checked:
                     fe: FileEntry = ch.data(0, Qt.ItemDataRole.UserRole)
                     if fe:
+cloud-scan-feature
                         items_to_delete.append((fe, ch))
+
+                        items_to_delete.append((fe.path, ch))
+ main
 
         if not items_to_delete:
             QMessageBox.information(self, "Nothing Marked", empty_message)
             return
 
+ cloud-scan-feature
         files = [f for f, _ in items_to_delete]
+
+        paths = [p for p, _ in items_to_delete]
+ main
         tree_items = [item for _, item in items_to_delete]
 
         def _remove_from_tree() -> None:
@@ -1164,7 +1240,11 @@ class MainWindow(QMainWindow):
             if after_delete:
                 after_delete()
 
+ cloud-scan-feature
         self._trash_paths(files, on_success=_remove_from_tree)
+
+        self._trash_paths(paths, on_success=_remove_from_tree)
+main
 
     def _select_all_but_first(self, tree: QTreeWidget) -> None:
         for i in range(tree.topLevelItemCount()):
@@ -1236,6 +1316,7 @@ class MainWindow(QMainWindow):
     def _any_worker_running(self) -> bool:
         workers = [self._scan_worker, self._similar_worker, self._storage_worker]
         return any(worker is not None and worker.isRunning() for worker in workers)
+cloud-scan-feature
 
 
     def _start_cloud_scan(self):
@@ -1283,3 +1364,5 @@ class MainWindow(QMainWindow):
 
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.critical(self, "Cloud Scan Error", msg)
+
+ main

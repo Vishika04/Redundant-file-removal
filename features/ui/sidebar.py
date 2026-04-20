@@ -107,12 +107,19 @@ class Sidebar(QWidget):
         lay = _vlay(grp, spacing=10)
 
         self.scan_btn = QPushButton("▶  Start Scan")
+cloud-scan-feature
         self.cloud_btn = QPushButton("☁ Scan Cloud")
         self.cloud_btn.setObjectName("cloudButton")
         self.scan_btn.setObjectName("primaryBtn")
         self.scan_btn.setMinimumHeight(38)
         lay.addWidget(self.scan_btn)
         lay.addWidget(self.cloud_btn)
+
+        self.scan_btn.setObjectName("primaryBtn")
+        self.scan_btn.setMinimumHeight(38)
+        lay.addWidget(self.scan_btn)
+        
+main
         # Tools Row
         row = QHBoxLayout()
         row.setSpacing(6)

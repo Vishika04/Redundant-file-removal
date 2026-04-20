@@ -151,6 +151,7 @@ QPushButton#dangerBtn:hover {
     background: #f85149;
 }
 
+cloud-scan-feature
 #cloudButton {
     background-color: #2d7ff9;
     color: white;
@@ -163,6 +164,8 @@ QPushButton#dangerBtn:hover {
     background-color: #1b5fd1;
 }
 
+
+main
 /* ── Form Controls ── */
 QLineEdit, QComboBox, QSpinBox {
     background: #0d1117;
