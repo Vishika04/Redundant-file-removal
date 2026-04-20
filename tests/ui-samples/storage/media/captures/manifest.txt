@@ -1,0 +1,1 @@
+﻿This subfolder exists to give the storage view more structure.

@@ -1,0 +1,23 @@
+User selects folder
+        ↓
+Scanning Engine (multi-threaded)
+        ↓
+Metadata Filtering
+        ↓
+ ┌───────────────┬────────────────┐
+ │               │                │
+Hash Engine   Similarity Engine   Cache DB
+ │               │                │
+ └──────→ Duplicate Groups ←──────┘
+                    ↓
+            UI Display (Tabs)
+        ↓                ↓
+ Duplicate Tab     Similar Files Tab
+        ↓
+ Storage Tree + Graph
+        ↓
+ User selects files
+        ↓
+ Deletion Handler
+        ↓
+ Move to Trash

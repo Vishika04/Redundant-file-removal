@@ -3,7 +3,7 @@ title Redundant File Remover — Installer
 color 0B
 echo.
 echo  ============================================
-echo    REDUNDANT FILE REMOVER  v3.0  Installer
+echo    REDUNDANT FILE REMOVER  v3.1  Installer
 echo  ============================================
 echo.
 
@@ -21,7 +21,7 @@ echo  [OK] Python found.
 echo.
 
 :: Install dependencies
-echo  Installing dependencies (PyQt6 is ~100MB, this may take a few minutes)...
+echo  Installing dependencies (PyQt6 is ~100 MB, this may take a few minutes)...
 echo  You should see download progress below:
 echo.
 pip install -r requirements.txt --progress-bar on
@@ -38,14 +38,14 @@ echo.
 echo  [OK] Dependencies installed.
 echo.
 
-:: Create Desktop shortcut
+:: Create Desktop shortcut pointing to main.py
 echo  Creating Desktop shortcut...
 powershell -Command ^
   "$ws = New-Object -ComObject WScript.Shell; " ^
   "$desktop = [Environment]::GetFolderPath('Desktop'); " ^
   "$sc = $ws.CreateShortcut([System.IO.Path]::Combine($desktop, 'Redundant File Remover.lnk')); " ^
   "$sc.TargetPath = 'pythonw'; " ^
-  "$sc.Arguments = '\"%~dp0redundant_file_remover.py\"'; " ^
+  "$sc.Arguments = '\"%~dp0main.py\"'; " ^
   "$sc.WorkingDirectory = '%~dp0'; " ^
   "$sc.Description = 'Find and remove duplicate files safely'; " ^
   "$sc.IconLocation = '%~dp0assets\logo.ico'; " ^

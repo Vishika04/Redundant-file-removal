@@ -2,11 +2,26 @@
 
 
 a = Analysis(
-    ['A:\\web development\\desktopApp\\RedundantFileRemover\\redundant_file_remover.py'],
-    pathex=[],
+    ['A:\\web development\\desktopApp\\RedundantFileRemover\\main.py'],
+    pathex=['A:\\web development\\desktopApp\\RedundantFileRemover'],
     binaries=[],
-    datas=[('README.md', '.'), ('assets\\*', 'assets')],
-    hiddenimports=[],
+    datas=[
+        ('README.md', '.'),
+        ('assets\\*', 'assets'),
+        ('features', 'features'),
+    ],
+    hiddenimports=[
+        'features.core.constants',
+        'features.core.models',
+        'features.core.utils',
+        'features.scanner.worker',
+        'features.scanner.tab',
+        'features.storage.worker',
+        'features.storage.tab',
+        'features.ui.style',
+        'features.ui.header',
+        'features.ui.sidebar',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

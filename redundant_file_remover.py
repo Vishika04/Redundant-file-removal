@@ -1,5 +1,17 @@
 """
-Redundant File Remover v3.0
+╔══════════════════════════════════════════════════════════════════════╗
+║  DEPRECATED — DO NOT RUN THIS FILE DIRECTLY                         ║
+║                                                                      ║
+║  This monolithic file has been refactored into the features/ package.║
+║  The new entry point is:  main.py                                    ║
+║                                                                      ║
+║  Run:  python main.py                                                ║
+║        (or double-click run.bat on Windows)                          ║
+║                                                                      ║
+║  This file is kept for historical reference only.                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Original: Redundant File Remover v3.0
 Professional PyQt6 app — Duplicate Scanner + Storage Tree View
 OS-safe: skips system/protected paths, always uses Recycle Bin
 """
@@ -10,6 +22,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from PyQt6.QtWidgets import QScrollArea
 from typing import Optional
+from db_cache import is_modified, update_cache, get_db
 
 import send2trash
 from PyQt6.QtWidgets import (
@@ -217,17 +230,49 @@ class ScanWorker(QThread):
                 if hash_total > 0:
                     futures = {}
                     with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as ex:
+                        # for e in to_hash:
+                        #     if self._abort: return
+                        #     futures[ex.submit(_sha256, e.path)] = e
+
                         for e in to_hash:
                             if self._abort: return
-                            futures[ex.submit(_sha256, e.path)] = e
+
+                            try:
+                                stat = os.stat(e.path)
+                            except:
+                                continue
+
+                            size = stat.st_size
+                            mtime = stat.st_mtime
+
+                            # 🔥 STEP 1: Check cache
+                            if not is_modified(e.path, size, mtime):
+                                print("SKIPPED:", e.path)
+
+                                # OPTIONAL: load cached hash (advanced)
+                                # e.hash_sha256 = get_cached_hash(e.path)
+
+                                continue
+
+                            # 🔥 STEP 2: Only hash if needed
+                            futures[ex.submit(_sha256, e.path)] = (e, size, mtime)
                             
+                        # for fut in concurrent.futures.as_completed(futures):
+                        #     if self._abort: return
+                        #     e = futures[fut]
+                        #     done[0] += 1
+                        #     pct = 5 + int(done[0] / hash_total * 70)
+                        #     self.progress.emit(pct, f"Hashing: {e.name}")
+                        #     e.hash_sha256 = fut.result()
+
                         for fut in concurrent.futures.as_completed(futures):
-                            if self._abort: return
-                            e = futures[fut]
-                            done[0] += 1
-                            pct = 5 + int(done[0] / hash_total * 70)
-                            self.progress.emit(pct, f"Hashing: {e.name}")
-                            e.hash_sha256 = fut.result()
+                            e, size, mtime = futures[fut]
+
+                            hash_value = fut.result()
+                            e.hash_sha256 = hash_value
+
+                            # 🔥 STEP 3: Update cache
+                            update_cache(e.path, size, mtime, hash_value)
 
 
             self.progress.emit(80, "Grouping duplicates…")
