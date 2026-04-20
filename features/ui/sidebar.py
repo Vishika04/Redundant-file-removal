@@ -44,7 +44,7 @@ class Sidebar(QWidget):
 
         # ── Directory Section ─────────────────────────────────────────────────
         lay.addWidget(self._build_directory_group())
-        
+
         self.warn_label = QLabel("⚠ Protected system path — scan blocked.")
         self.warn_label.setObjectName("warnLabel")
         self.warn_label.setWordWrap(True)
@@ -59,7 +59,7 @@ class Sidebar(QWidget):
 
         # ── Stats Dashboard ───────────────────────────────────────────────────
         lay.addWidget(self._build_stats_group())
-        
+
         lay.addStretch()
 
     def _build_directory_group(self) -> QWidget:
@@ -107,28 +107,24 @@ class Sidebar(QWidget):
         lay = _vlay(grp, spacing=10)
 
         self.scan_btn = QPushButton("▶  Start Scan")
-cloud-scan-feature
-        self.cloud_btn = QPushButton("☁ Scan Cloud")
-        self.cloud_btn.setObjectName("cloudButton")
         self.scan_btn.setObjectName("primaryBtn")
         self.scan_btn.setMinimumHeight(38)
         lay.addWidget(self.scan_btn)
+
+        self.cloud_btn = QPushButton("☁  Scan Cloud")
+        self.cloud_btn.setObjectName("cloudButton")
+        self.cloud_btn.setMinimumHeight(38)
         lay.addWidget(self.cloud_btn)
 
-        self.scan_btn.setObjectName("primaryBtn")
-        self.scan_btn.setMinimumHeight(38)
-        lay.addWidget(self.scan_btn)
-        
-main
         # Tools Row
         row = QHBoxLayout()
         row.setSpacing(6)
         self.monitor_btn = QPushButton("👁  Monitor")
         self.monitor_btn.setToolTip("Watch for new duplicates in real-time")
-        
+
         self.stop_btn = QPushButton("■  Stop")
         self.stop_btn.setEnabled(False)
-        
+
         row.addWidget(self.monitor_btn)
         row.addWidget(self.stop_btn)
         lay.addLayout(row)
@@ -175,14 +171,15 @@ main
             lay.addLayout(r)
             return val
 
-        self.s_groups  = _row("Groups Found", "statLabel")
+        self.s_groups  = _row("Groups Found",    "statLabel")
         self.s_dupes   = _row("Duplicate Items", "statLabel")
-        self.s_save    = _row("Reclaimable", "statGreen")
-        self.s_scanned = _row("Total Scanned", "statLabel")
-        self.s_prot    = _row("Protected Hits", "statLabel")
+        self.s_save    = _row("Reclaimable",     "statGreen")
+        self.s_scanned = _row("Total Scanned",   "statLabel")
+        self.s_prot    = _row("Protected Hits",  "statLabel")
         return grp
 
-    # ── Helpers ──
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
     def set_scan_running(self, running: bool) -> None:
         self.scan_btn.setEnabled(not running)
         self.stop_btn.setEnabled(running)
@@ -197,7 +194,8 @@ main
         self.clr_btn.setEnabled(available)
 
     def reset_stats(self) -> None:
-        for lbl in (self.s_groups, self.s_dupes, self.s_save, self.s_scanned, self.s_prot):
+        for lbl in (self.s_groups, self.s_dupes, self.s_save,
+                    self.s_scanned, self.s_prot):
             lbl.setText("—")
 
     def match_mode(self) -> str:
@@ -205,8 +203,7 @@ main
 
 
 def _group(title: str) -> QGroupBox:
-    g = QGroupBox(title)
-    return g
+    return QGroupBox(title)
 
 def _vlay(p, spacing=8) -> QVBoxLayout:
     l = QVBoxLayout(p)
