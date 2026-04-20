@@ -19,7 +19,13 @@ class FileEntry:
     similarity_score: float = 0.0
     group_id:   int  = -1
     protected:  bool = False
+ cloud-scan-feature
+    source: str = "local"              # "local" or "cloud"
+    file_id: str = None      # Google Drive file ID
+    modified_time: str = None
+    mime_type: str = ""
 
+ main
 
 @dataclass
 class DuplicateGroup:
