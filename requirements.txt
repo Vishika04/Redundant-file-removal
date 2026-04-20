@@ -5,3 +5,6 @@ opencv-python>=4.8.0
 librosa>=0.10.0
 pydub>=0.25.1
 watchdog>=4.0.0
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.1.0
